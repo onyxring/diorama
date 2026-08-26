@@ -8,7 +8,7 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="toolbar">
     <span class="brand">diorama</span>
-    <span class="hint">tap: room · drag: connect · hold: dictate</span>
+    <span class="hint">tap empty: add room · tap room: edit · drag: connect</span>
     <button id="export" class="btn">Export Beguile</button>
   </header>
   <main id="stage" class="stage"></main>

@@ -1,7 +1,7 @@
 import type { World, Room } from '../model/world';
-import { createRoom, connect, setProperty } from '../model/world';
+import { createRoom, connect } from '../model/world';
 import { attachGestures, type Point } from './gestures';
-import { startDictation, isSupported, type DictationSession } from '../speech/dictation';
+import { openRoomEditor } from './roomEditor';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ROOM_W = 132;
@@ -13,7 +13,6 @@ const ROOM_H = 68;
 export class Canvas {
   private svg: SVGSVGElement;
   private ghost: SVGLineElement | null = null;
-  private dictating: DictationSession | null = null;
 
   constructor(private host: HTMLElement, private world: World, private onChange: () => void) {
     this.svg = document.createElementNS(SVG_NS, 'svg');
@@ -23,7 +22,8 @@ export class Canvas {
 
     attachGestures(this.host, {
       onTap: (p) => {
-        if (this.roomAt(p)) return;               // tapping a room ≠ making one (edit later)
+        const room = this.roomAt(p);
+        if (room) { this.edit(room); return; }    // tap a room → edit it (name + description)
         const r = createRoom(p.x - ROOM_W / 2, p.y - ROOM_H / 2);
         this.world.rooms.push(r);
         if (!this.world.start) this.world.start = r.id;
@@ -44,9 +44,13 @@ export class Canvas {
         this.endGhost();
         this.changed();
       },
-      onLongPressStart: (p) => this.beginDictation(this.roomAt(p)),
-      onLongPressEnd: () => this.endDictation(),
+      // Long-press a room → edit it and start dictation straight away.
+      onLongPressEnd: (p) => { const room = this.roomAt(p); if (room) this.edit(room, true); },
     });
+  }
+
+  private edit(room: Room, autoDictate = false) {
+    openRoomEditor(room, () => this.changed(), autoDictate);
   }
 
   setWorld(world: World) { this.world = world; this.render(); }
@@ -62,24 +66,6 @@ export class Canvas {
       if (p.x >= r.x && p.x <= r.x + ROOM_W && p.y >= r.y && p.y <= r.y + ROOM_H) return r;
     }
     return undefined;
-  }
-
-  // ── dictation (press-and-hold on a room → fill its description) ──────────────
-  private beginDictation(room: Room | undefined) {
-    if (!room) return;
-    this.host.classList.add('is-dictating');
-    if (!isSupported()) { setProperty(room, 'description', '[dictation unavailable on this device]'); this.changed(); return; }
-    this.dictating = startDictation({
-      onText: (text) => { setProperty(room, 'description', text); this.render(); },
-      onEnd: () => this.host.classList.remove('is-dictating'),
-      onError: () => this.host.classList.remove('is-dictating'),
-    });
-  }
-  private endDictation() {
-    this.host.classList.remove('is-dictating');
-    this.dictating?.stop();
-    this.dictating = null;
-    this.onChange();
   }
 
   // ── drag-to-connect ghost line ──────────────────────────────────────────────
