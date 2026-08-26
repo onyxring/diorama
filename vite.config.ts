@@ -22,6 +22,30 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/diorama.svg'],
+      workbox: {
+        // Precache the app shell only. The Whisper WASM (~20 MB) and model weights are
+        // huge and only needed once the user dictates, so they're runtime-cached on first
+        // use instead of bloating the service-worker install — small base, offline after use.
+        globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
+        runtimeCaching: [
+          {
+            // ONNX Runtime WASM (large, served locally by transformers.js).
+            urlPattern: ({ url }) => url.pathname.endsWith('.wasm'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'onnx-wasm', cacheableResponse: { statuses: [0, 200] } },
+          },
+          {
+            // Whisper model weights, fetched from the Hugging Face CDN on first dictation.
+            urlPattern: ({ url }) => /huggingface\.co|hf\.co/.test(url.hostname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'whisper-model',
+              expiration: { maxEntries: 40 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
+      },
       manifest: {
         name: 'diorama',
         short_name: 'diorama',

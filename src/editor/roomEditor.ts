@@ -1,15 +1,15 @@
 import type { Room } from '../model/world';
 import { setProperty } from '../model/world';
-import { startDictation, isSupported, type DictationSession } from '../speech/dictation';
+import { startRecording, isRecordingSupported, type Recorder } from '../speech/recorder';
+import { activeTranscriber } from '../speech/transcriber';
 
-// A lightweight room editor: name + description, with dictation.
+// A lightweight room editor: name + description, with hold-to-talk dictation.
 //
-// Dictation strategy, by platform:
-//   • Web Speech API present (Chromium, desktop Safari) → the 🎤 button does in-app
-//     click-to-toggle dictation straight into the field.
-//   • Not present (notably iOS Safari / iPad) → we focus the field so the on-screen
-//     keyboard appears; its built-in dictation mic does on-device speech-to-text.
-// Either way the user can also just type.
+// Dictation: press-and-hold the 🎤 to record, release to transcribe. Capture is
+// MediaRecorder (works on iPad once mic permission is granted); transcription runs
+// on-device via Whisper (see speech/). The model downloads on first use; typing
+// always works. If mic capture isn't available at all, we fall back to focusing the
+// field so the on-screen keyboard's own dictation mic can be used.
 export function openRoomEditor(room: Room, onSave: () => void, autoDictate = false): void {
   const overlay = document.createElement('div');
   overlay.className = 'editor-overlay';
@@ -19,7 +19,7 @@ export function openRoomEditor(room: Room, onSave: () => void, autoDictate = fal
       <label>Description
         <div class="e-desc-row">
           <textarea class="e-desc" rows="4"></textarea>
-          <button class="e-mic btn" type="button" title="Dictate">🎤</button>
+          <button class="e-mic btn" type="button" title="Hold to talk">🎤</button>
         </div>
       </label>
       <div class="e-hint"></div>
@@ -36,31 +36,61 @@ export function openRoomEditor(room: Room, onSave: () => void, autoDictate = fal
   nameEl.value = room.name;
   descEl.value = String(room.properties.find(p => p.key === 'description')?.value ?? '');
 
-  let session: DictationSession | null = null;
-  const stopDictation = () => { session?.stop(); session = null; micEl.classList.remove('live'); };
+  const appendText = (text: string) => {
+    if (!text) return;
+    descEl.value = (descEl.value ? descEl.value.replace(/\s+$/, '') + ' ' : '') + text;
+  };
 
-  const toggleMic = () => {
-    if (!isSupported()) {
-      // iPad path: no Web Speech API → hand off to the keyboard's dictation mic.
-      descEl.focus();
-      hintEl.textContent = 'Tap the 🎤 on your keyboard to dictate — or just type.';
+  // ── hold-to-talk: record on press, transcribe on release ────────────────────
+  let recorder: Recorder | null = null;
+  let busy = false;
+
+  const startRec = async () => {
+    if (busy || recorder) return;
+    if (!isRecordingSupported()) {
+      descEl.focus();                                  // last-ditch fallback: keyboard mic
+      hintEl.textContent = 'Mic capture unavailable — use your keyboard’s 🎤, or type.';
       return;
     }
-    if (session) { stopDictation(); return; }
-    const base = descEl.value ? descEl.value.replace(/\s+$/, '') + ' ' : '';
-    micEl.classList.add('live');
-    hintEl.textContent = 'Listening…';
-    session = startDictation({
-      onText: (t) => { descEl.value = base + t; },
-      onEnd: () => { micEl.classList.remove('live'); hintEl.textContent = ''; session = null; },
-      onError: (m) => { hintEl.textContent = m; micEl.classList.remove('live'); session = null; },
-    });
-    if (!session) micEl.classList.remove('live');
+    const t = activeTranscriber();
+    if (!t.isLoaded) void t.load((f, m) => { hintEl.textContent = `${m} ${Math.round(f * 100)}%`; });
+    try {
+      recorder = await startRecording();
+      micEl.classList.add('live');
+      hintEl.textContent = 'Listening… (release to transcribe)';
+    } catch (err) {
+      hintEl.textContent = 'Microphone blocked: ' + message(err);
+      recorder = null;
+    }
   };
-  micEl.addEventListener('click', toggleMic);
+
+  const stopRec = async () => {
+    if (!recorder) return;
+    const rec = recorder; recorder = null;
+    micEl.classList.remove('live');
+    busy = true;
+    try {
+      const pcm = await rec.stop();
+      hintEl.textContent = activeTranscriber().isLoaded ? 'Transcribing…' : 'Loading speech model…';
+      const text = await activeTranscriber().transcribe(pcm, (f, m) => {
+        hintEl.textContent = f < 1 ? `${m} ${Math.round(f * 100)}%` : `${m}…`;
+      });
+      appendText(text);
+      hintEl.textContent = text ? '' : 'Didn’t catch that — try again.';
+    } catch (err) {
+      hintEl.textContent = 'Transcription failed: ' + message(err);
+    } finally {
+      busy = false;
+    }
+  };
+
+  micEl.addEventListener('pointerdown', (e) => { e.preventDefault(); void startRec(); });
+  micEl.addEventListener('pointerup', () => void stopRec());
+  micEl.addEventListener('pointercancel', () => void stopRec());
+  micEl.addEventListener('pointerleave', () => { if (recorder) void stopRec(); });
 
   const save = () => {
-    stopDictation();
+    recorder?.cancel();
     room.name = nameEl.value.trim() || room.name;
     const d = descEl.value.trim();
     if (d) setProperty(room, 'description', d);
@@ -73,5 +103,9 @@ export function openRoomEditor(room: Room, onSave: () => void, autoDictate = fal
 
   // Focus synchronously (inside the originating gesture) so iOS shows the keyboard.
   descEl.focus();
-  if (autoDictate) toggleMic();
+  if (autoDictate) hintEl.textContent = 'Hold 🎤 to talk, or just type.';
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
