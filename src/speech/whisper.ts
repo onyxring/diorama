@@ -42,6 +42,17 @@ export const whisperTranscriber: Transcriber = {
     onProgress?.(1, 'transcribing');
     const out: any = await pipe(pcm16k);
     const text = Array.isArray(out) ? out.map((o) => o.text).join(' ') : out?.text;
-    return String(text ?? '').trim();
+    return clean(String(text ?? ''));
   },
 };
+
+// Whisper emits non-speech annotations for silence/noise — [BLANK_AUDIO], [SOUND],
+// [MUSIC], (APPLAUSE), etc. Strip them (and any bracketed / all-caps-parenthetical token)
+// so they never land in a room's text.
+function clean(t: string): string {
+  return t
+    .replace(/\[[^\]]*\]/g, ' ')                 // [BLANK_AUDIO], [SOUND], [ Silence ] …
+    .replace(/\(\s*[A-Z][A-Z _]*\s*\)/g, ' ')     // (MUSIC), (APPLAUSE), (WIND BLOWING) …
+    .replace(/\s+/g, ' ')
+    .trim();
+}

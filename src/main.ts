@@ -3,6 +3,7 @@ import { emptyWorld } from './model/world';
 import { Canvas } from './editor/canvas';
 import { Panel } from './editor/panel';
 import { initStatus } from './editor/status';
+import { activeTranscriber } from './speech/transcriber';
 import { getExporter } from './export';
 
 // ── layout ───────────────────────────────────────────────────────────────────
@@ -40,6 +41,23 @@ const panel = new Panel(
 const canvas = new Canvas(stage, world, {
   onSelect: (room) => panel.show(room),
   onChange: () => save(),
+});
+
+// ── warm mic + model on first interaction ──────────────────────────────────────
+// iOS needs a user gesture to prompt for the mic, so it can't be literally at page open —
+// but doing it on the FIRST tap gets the permission dialog out of the way up front (not
+// mid-dictation), and prefetches the Whisper model so the first hold-to-talk is ready.
+let warmed = false;
+app.addEventListener('pointerdown', async () => {
+  if (warmed) return;
+  warmed = true;
+  if (navigator.mediaDevices?.getUserMedia) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach((t) => t.stop());     // release immediately — only listen while pressed
+    } catch { /* denied/unavailable; dictation will report it later */ }
+  }
+  void activeTranscriber().load();                 // prefetch model in the background (cached after)
 });
 
 // ── toolbar actions ────────────────────────────────────────────────────────────

@@ -46,15 +46,24 @@ export async function startRecording(): Promise<Recorder> {
   };
 }
 
-// Decode a recorded blob (webm/opus on Chromium, mp4/aac on Safari) into a 16 kHz
-// mono Float32Array using the Web Audio API. Connecting a multi-channel source to a
-// 1-channel OfflineAudioContext running at 16 kHz downmixes and resamples in one pass.
-async function decodeTo16kMono(blob: Blob): Promise<Float32Array> {
-  const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-  const decodeCtx = new AudioCtx();
-  const decoded = await decodeCtx.decodeAudioData(await blob.arrayBuffer());
-  await decodeCtx.close();
+// One shared AudioContext for decoding, reused across recordings. Repeatedly creating
+// and closing AudioContexts leaks on iOS Safari (a likely contributor to the tab being
+// reloaded under memory pressure), so we keep a single suspended context around.
+let decodeCtx: AudioContext | null = null;
+function getDecodeCtx(): AudioContext {
+  if (!decodeCtx) {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    decodeCtx = new AudioCtx();
+  }
+  return decodeCtx;
+}
 
+// Decode a recorded blob (webm/opus on Chromium, mp4/aac on Safari) into a 16 kHz mono
+// Float32Array. Connecting a multi-channel source to a 1-channel OfflineAudioContext at
+// 16 kHz downmixes and resamples in one pass. The short-lived OfflineAudioContext is fine
+// to create per call; it's the persistent (mic/decode) contexts we avoid churning.
+async function decodeTo16kMono(blob: Blob): Promise<Float32Array> {
+  const decoded = await getDecodeCtx().decodeAudioData(await blob.arrayBuffer());
   const target = 16000;
   const frames = Math.max(1, Math.ceil(decoded.duration * target));
   const offline = new OfflineAudioContext(1, frames, target);

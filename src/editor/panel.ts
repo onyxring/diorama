@@ -45,8 +45,8 @@ export class Panel {
       this.onChange();
     };
 
-    const name = makeDictField({ label: 'Name', value: room.name, onInput: (v) => { room.name = v; this.onChange(); } });
-    const short = makeDictField({ label: 'Short name', value: prop('short_name'), onInput: (v) => write('short_name', v) });
+    const name = makeDictField({ label: 'Name', value: room.name, replace: true, onInput: (v) => { room.name = v; this.onChange(); } });
+    const short = makeDictField({ label: 'Short name', value: prop('short_name'), replace: true, onInput: (v) => write('short_name', v) });
     const desc = makeDictField({ label: 'Description', multiline: true, value: prop('description'), onInput: (v) => write('description', v) });
 
     const del = document.createElement('button');
