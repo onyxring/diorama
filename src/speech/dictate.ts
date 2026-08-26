@@ -30,7 +30,7 @@ export async function beginDictation(listeningMsg = 'Listening… release to tra
 export async function endDictation(stripTrailingPunct = false): Promise<string> {
   if (!active) return '';
   active = false;
-  const pcm = endCapture();
+  const pcm = await endCapture();
   setStatus(activeTranscriber().isLoaded ? 'Transcribing…' : 'Loading speech model…');
   try {
     let text = await activeTranscriber().transcribe(pcm, (f, m) =>
