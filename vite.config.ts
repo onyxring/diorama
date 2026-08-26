@@ -10,6 +10,10 @@ export default defineConfig({
   // from another device). Vite prints the reachable "Network:" URL on start.
   server: {
     host: true,
+    // Vite blocks requests whose Host header isn't allowlisted (DNS-rebinding guard).
+    // This is a local IF-authoring dev tool on a trusted LAN, so allow any host — that
+    // covers `<machine>.local`, the LAN IP, Tailscale, etc. without hardcoding a hostname.
+    allowedHosts: true,
     // HMR over an mDNS ".local" host: point the live-reload socket at the same host
     // the page was loaded from, so hot-reload works from the iPad too.
     hmr: { clientPort: 5173 },
