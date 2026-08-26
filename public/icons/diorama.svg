@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="diorama">
+  <rect width="512" height="512" rx="96" fill="#1c1917"/>
+  <!-- a little staged box: an open diorama with rooms and a connection -->
+  <g fill="none" stroke="#e7e5e4" stroke-width="14" stroke-linejoin="round">
+    <path d="M112 168 L256 112 L400 168 L400 372 L256 428 L112 372 Z"/>
+    <path d="M112 168 L256 224 L400 168 M256 224 L256 428" opacity="0.5"/>
+  </g>
+  <g fill="#f59e0b">
+    <rect x="150" y="250" width="60" height="60" rx="10"/>
+    <rect x="300" y="250" width="60" height="60" rx="10"/>
+  </g>
+  <path d="M210 280 L300 280" stroke="#f59e0b" stroke-width="12" stroke-linecap="round"/>
+</svg>

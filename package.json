@@ -1,0 +1,20 @@
+{
+  "name": "diorama",
+  "version": "0.0.1",
+  "description": "Craft the world your story plays in — a touch-first world-crafting PWA for interactive fiction.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "Jim Fisher (OnyxRing)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7",
+    "vite-plugin-pwa": "^0.21.1"
+  }
+}
