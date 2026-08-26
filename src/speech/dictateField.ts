@@ -1,4 +1,4 @@
-import { startRecording, isRecordingSupported, type Recorder } from './recorder';
+import { ensureMic, beginCapture, endCapture, micReady, isRecordingSupported } from './recorder';
 import { activeTranscriber } from './transcriber';
 import { setStatus } from '../editor/status';
 
@@ -54,8 +54,8 @@ function attachHoldToTalk(
   replace: boolean,
   onChange: () => void,
 ): void {
-  let recorder: Recorder | null = null;
   let held = false;         // is the button currently pressed?
+  let capturing = false;    // are we buffering audio?
   let working = false;      // transcription in flight
 
   const begin = async () => {
@@ -68,25 +68,27 @@ function attachHoldToTalk(
                                        : 'In-app dictation needs https — using keyboard 🎤', 3000);
       return;
     }
+    if (!micReady()) {                          // first-ever press: acquire the mic (one-time)
+      setStatus('Enabling mic…');
+      try { await ensureMic(); }
+      catch { held = false; mic.classList.remove('rec'); setStatus('Microphone blocked', 2500); return; }
+      if (!held) { setStatus(null); return; }   // released during the one-time setup
+    }
+    beginCapture();                             // instant from here on
+    capturing = true;
     mic.classList.add('rec');
-    setStatus('Starting mic…');
-    let rec: Recorder;
-    try { rec = await startRecording(); }
-    catch { held = false; mic.classList.remove('rec'); setStatus('Microphone blocked', 2500); return; }
-    if (!held) { rec.cancel(); mic.classList.remove('rec'); setStatus(null); return; }   // released during setup
-    recorder = rec;
     setStatus('Listening… release to transcribe');
   };
 
   const end = async () => {
     held = false;
-    const rec = recorder; recorder = null;
-    if (!rec) { mic.classList.remove('rec'); return; }        // never actually started
+    if (!capturing) { mic.classList.remove('rec'); return; }
+    capturing = false;
+    const pcm = endCapture();
     mic.classList.remove('rec'); mic.classList.add('busy');
     working = true;
     setStatus(activeTranscriber().isLoaded ? 'Transcribing…' : 'Loading speech model…');
     try {
-      const pcm = await rec.stop();
       const text = await activeTranscriber().transcribe(pcm, (f, m) =>
         setStatus(f < 1 ? `${m} ${Math.round(f * 100)}%` : `${m}…`));
       if (text) {

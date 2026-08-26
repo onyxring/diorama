@@ -4,6 +4,7 @@ import { Canvas } from './editor/canvas';
 import { Panel } from './editor/panel';
 import { initStatus } from './editor/status';
 import { activeTranscriber } from './speech/transcriber';
+import { ensureMic, isRecordingSupported } from './speech/recorder';
 import { getExporter } from './export';
 
 // ── layout ───────────────────────────────────────────────────────────────────
@@ -51,11 +52,9 @@ let warmed = false;
 app.addEventListener('pointerdown', async () => {
   if (warmed) return;
   warmed = true;
-  if (navigator.mediaDevices?.getUserMedia) {
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      s.getTracks().forEach((t) => t.stop());     // release immediately — only listen while pressed
-    } catch { /* denied/unavailable; dictation will report it later */ }
+  if (isRecordingSupported()) {
+    try { await ensureMic(); }                     // acquire mic + build capture graph → instant presses
+    catch { /* denied/unavailable; dictation will report it later */ }
   }
   void activeTranscriber().load();                 // prefetch model in the background (cached after)
 });
