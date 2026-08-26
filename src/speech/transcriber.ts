@@ -18,10 +18,20 @@ export interface Transcriber {
 }
 
 import { whisperTranscriber } from './whisper';
+import { localServerTranscriber } from './localServer';
+import { groqTranscriber, openaiTranscriber } from './cloud';
+import { getSettings, type Engine } from '../settings';
 
-export const transcribers: Transcriber[] = [whisperTranscriber];
+const byEngine: Record<Engine, Transcriber> = {
+  ondevice: whisperTranscriber,
+  local: localServerTranscriber,
+  groq: groqTranscriber,
+  openai: openaiTranscriber,
+};
 
-/** The transcriber the UI uses. (Later: user-selectable / best-available.) */
+export const transcribers: Transcriber[] = Object.values(byEngine);
+
+/** The transcriber the UI uses, per the user's Settings engine choice. */
 export function activeTranscriber(): Transcriber {
-  return whisperTranscriber;
+  return byEngine[getSettings().engine] ?? whisperTranscriber;
 }

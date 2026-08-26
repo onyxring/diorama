@@ -15,6 +15,11 @@ export default defineConfig({
     // This is a local IF-authoring dev tool on a trusted LAN, so allow any host — that
     // covers `<machine>.local`, the LAN IP, Tailscale, etc. without hardcoding a hostname.
     allowedHosts: true,
+    // Proxy speech-to-text to the local Whisper server (server/run.sh) so the browser
+    // only ever calls this same (https) origin — no CORS, no mixed content.
+    proxy: {
+      '/stt': { target: 'http://127.0.0.1:8760', changeOrigin: true },
+    },
   },
   plugins: [
     // Serve dev over HTTPS with a self-signed cert. getUserMedia / MediaRecorder (the mic

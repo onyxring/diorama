@@ -112,3 +112,25 @@ textarea.field-input { resize: vertical; min-height: 88px; }
   -webkit-user-select: text; user-select: text;
 }
 .sheet .btn { margin: 0 auto; }
+
+/* ── settings sheet ──────────────────────────────────────────────────────── */
+.settings-sheet { align-items: flex-start; justify-content: center; }
+.settings-panel {
+  width: min(520px, 100%); margin-top: env(safe-area-inset-top);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 20px; display: flex; flex-direction: column; gap: 14px;
+  -webkit-user-select: text; user-select: text;
+}
+.settings-panel h2 { margin: 0; font-size: 16px; }
+.engine-list { display: flex; flex-direction: column; gap: 8px; }
+.engine {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+}
+.engine.on { border-color: var(--accent); }
+.engine input { grid-row: span 2; }
+.engine-label { font-weight: 600; }
+.engine-note { grid-column: 2; color: var(--muted); font-size: 12px; }
+.settings-panel .field-input { width: 100%; }
+.settings-actions { display: flex; justify-content: flex-end; }
+.settings-actions .btn { margin: 0; }

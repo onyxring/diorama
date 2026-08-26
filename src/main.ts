@@ -3,8 +3,8 @@ import { emptyWorld } from './model/world';
 import { Canvas } from './editor/canvas';
 import { Panel } from './editor/panel';
 import { initStatus } from './editor/status';
-import { activeTranscriber } from './speech/transcriber';
 import { ensureMic, isRecordingSupported } from './speech/recorder';
+import { openSettings } from './editor/settingsView';
 import { getExporter } from './export';
 
 // ── layout ───────────────────────────────────────────────────────────────────
@@ -13,6 +13,7 @@ app.innerHTML = `
   <header class="toolbar">
     <span class="brand">di<span class="or">or</span>ama</span>
     <div class="tb-spacer"></div>
+    <button id="settings" class="btn icon" title="Settings">⚙</button>
     <button id="recenter" class="btn icon" title="Recenter">⌖</button>
     <button id="export" class="btn">Export</button>
   </header>
@@ -56,10 +57,10 @@ app.addEventListener('pointerdown', async () => {
     try { await ensureMic(); }                     // acquire mic + build capture graph → instant presses
     catch { /* denied/unavailable; dictation will report it later */ }
   }
-  void activeTranscriber().load();                 // prefetch model in the background (cached after)
 });
 
 // ── toolbar actions ────────────────────────────────────────────────────────────
+document.querySelector('#settings')!.addEventListener('click', () => openSettings());
 document.querySelector('#recenter')!.addEventListener('click', () => canvas.recenter());
 
 const sheet = document.querySelector<HTMLElement>('#sheet')!;
