@@ -1,131 +1,290 @@
-import type { World, Room } from '../model/world';
-import { createRoom, connect } from '../model/world';
-import { attachGestures, type Point } from './gestures';
-import { openRoomEditor } from './roomEditor';
+import type { World, Room, Direction } from '../model/world';
+import { createRoom, connect, disconnect, snap, GRID } from '../model/world';
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const ROOM_W = 132;
-const ROOM_H = 68;
+const NS = 'http://www.w3.org/2000/svg';
+const ROOM_W = 120;
+const ROOM_H = 80;
+const PORT_R = 9;
+const TAP_SLOP = 6;                 // px of movement before a tap becomes a drag
+const CONN_HIT = 14;               // px tolerance for tapping a connection line
 
-// A minimal node-graph editor: rooms as boxes, exits as lines, gestures wired to
-// the model. Intentionally framework-free — swap in a richer renderer later without
-// touching the model or exporters.
+const DIRS8: Direction[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
+const FRAC: Partial<Record<Direction, [number, number]>> = {
+  n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5], nw: [0, 0],
+};
+
+interface Pt { x: number; y: number; }
+
+type Act =
+  | { k: 'room'; id: string; gx: number; gy: number; sx: number; sy: number; pid: number; moved: boolean }
+  | { k: 'connect'; from: string; dir: Direction; pid: number; moved: boolean }
+  | { k: 'conn'; a: string; b: string; pid: number; moved: boolean }
+  | { k: 'empty'; wx: number; wy: number; sx: number; sy: number; pid: number; moved: boolean }
+  | { k: 'pan1'; lx: number; ly: number; pid: number };
+
+export interface CanvasHandlers {
+  onSelect(room: Room | null): void;
+  onChange(): void;
+}
+
 export class Canvas {
   private svg: SVGSVGElement;
-  private ghost: SVGLineElement | null = null;
+  private panX = 0;
+  private panY = 0;
+  private selectedId: string | null = null;
+  private ghost: { from: Pt; to: Pt } | null = null;
 
-  constructor(private host: HTMLElement, private world: World, private onChange: () => void) {
-    this.svg = document.createElementNS(SVG_NS, 'svg');
+  private pointers = new Map<number, Pt>();
+  private act: Act | null = null;
+  private panning = false;             // two-finger
+  private panLast: Pt = { x: 0, y: 0 };
+
+  constructor(private host: HTMLElement, private world: World, private h: CanvasHandlers) {
+    this.svg = document.createElementNS(NS, 'svg');
     this.svg.setAttribute('class', 'diorama-canvas');
     this.host.appendChild(this.svg);
+
+    this.svg.addEventListener('pointerdown', (e) => this.onDown(e));
+    this.svg.addEventListener('pointermove', (e) => this.onMove(e));
+    this.svg.addEventListener('pointerup', (e) => this.onUp(e));
+    this.svg.addEventListener('pointercancel', (e) => this.onUp(e));
+
+    this.recenter();
+  }
+
+  get selected(): Room | null { return this.world.rooms.find(r => r.id === this.selectedId) ?? null; }
+  setWorld(w: World) { this.world = w; this.selectedId = null; this.recenter(); }
+  refresh() { this.render(); }
+
+  select(room: Room | null) {
+    this.selectedId = room?.id ?? null;
     this.render();
-
-    attachGestures(this.host, {
-      onTap: (p) => {
-        const room = this.roomAt(p);
-        if (room) { this.edit(room); return; }    // tap a room → edit it (name + description)
-        const r = createRoom(p.x - ROOM_W / 2, p.y - ROOM_H / 2);
-        this.world.rooms.push(r);
-        if (!this.world.start) this.world.start = r.id;
-        this.changed();
-      },
-      onDragStart: (p) => {
-        const from = this.roomAt(p);
-        if (from) this.beginGhost(this.center(from));
-      },
-      onDragMove: (from, to) => {
-        const src = this.roomAt(from);
-        if (src && this.ghost) this.updateGhost(to);
-      },
-      onDragEnd: (from, to) => {
-        const src = this.roomAt(from);
-        const dst = this.roomAt(to);
-        if (src && dst && src.id !== dst.id) connect(this.world, src.id, dst.id);
-        this.endGhost();
-        this.changed();
-      },
-      // Long-press a room → edit it and start dictation straight away.
-      onLongPressEnd: (p) => { const room = this.roomAt(p); if (room) this.edit(room, true); },
-    });
+    this.h.onSelect(this.selected);
   }
 
-  private edit(room: Room, autoDictate = false) {
-    openRoomEditor(room, () => this.changed(), autoDictate);
+  recenter() {
+    const rect = this.host.getBoundingClientRect();
+    if (this.world.rooms.length === 0) { this.panX = rect.width / 2; this.panY = rect.height / 2; }
+    else {
+      let cx = 0, cy = 0;
+      for (const r of this.world.rooms) { cx += r.x + ROOM_W / 2; cy += r.y + ROOM_H / 2; }
+      cx /= this.world.rooms.length; cy /= this.world.rooms.length;
+      this.panX = rect.width / 2 - cx;
+      this.panY = rect.height / 2 - cy;
+    }
+    this.render();
   }
 
-  setWorld(world: World) { this.world = world; this.render(); }
-
-  private changed() { this.render(); this.onChange(); }
-
-  private center(r: Room): Point { return { x: r.x + ROOM_W / 2, y: r.y + ROOM_H / 2 }; }
-
-  private roomAt(p: Point): Room | undefined {
-    // topmost first
+  // ── coordinate transforms ───────────────────────────────────────────────────
+  private toWorld(clientX: number, clientY: number): Pt {
+    const r = this.svg.getBoundingClientRect();
+    return { x: clientX - r.left - this.panX, y: clientY - r.top - this.panY };
+  }
+  private portPoint(room: Room, dir?: Direction): Pt {
+    const f = (dir && FRAC[dir]) || [0.5, 0.5];
+    return { x: room.x + f[0] * ROOM_W, y: room.y + f[1] * ROOM_H };
+  }
+  private roomAt(w: Pt): Room | undefined {
     for (let i = this.world.rooms.length - 1; i >= 0; i--) {
       const r = this.world.rooms[i];
-      if (p.x >= r.x && p.x <= r.x + ROOM_W && p.y >= r.y && p.y <= r.y + ROOM_H) return r;
+      if (w.x >= r.x && w.x <= r.x + ROOM_W && w.y >= r.y && w.y <= r.y + ROOM_H) return r;
     }
     return undefined;
   }
-
-  // ── drag-to-connect ghost line ──────────────────────────────────────────────
-  private beginGhost(from: Point) {
-    this.ghost = document.createElementNS(SVG_NS, 'line');
-    this.ghost.setAttribute('class', 'ghost');
-    this.ghost.setAttribute('x1', String(from.x));
-    this.ghost.setAttribute('y1', String(from.y));
-    this.ghost.setAttribute('x2', String(from.x));
-    this.ghost.setAttribute('y2', String(from.y));
-    this.svg.appendChild(this.ghost);
+  private portAt(w: Pt): Direction | null {
+    const sel = this.selected;
+    if (!sel) return null;
+    for (const d of DIRS8) {
+      const p = this.portPoint(sel, d);
+      if (Math.hypot(w.x - p.x, w.y - p.y) <= PORT_R + 6) return d;
+    }
+    return null;
   }
-  private updateGhost(to: Point) {
-    this.ghost?.setAttribute('x2', String(to.x));
-    this.ghost?.setAttribute('y2', String(to.y));
-  }
-  private endGhost() { this.ghost?.remove(); this.ghost = null; }
-
-  // ── render ──────────────────────────────────────────────────────────────────
-  render() {
-    while (this.svg.firstChild) this.svg.removeChild(this.svg.firstChild);
-
-    // exits first (behind rooms); draw each undirected pair once
-    const drawn = new Set<string>();
+  private connAt(w: Pt): { a: string; b: string } | null {
+    const seen = new Set<string>();
     for (const r of this.world.rooms) {
       for (const e of r.exits) {
         const key = [r.id, e.to].sort().join('|');
-        if (drawn.has(key)) continue;
-        drawn.add(key);
+        if (seen.has(key)) continue;
+        seen.add(key);
         const to = this.world.rooms.find(x => x.id === e.to);
         if (!to) continue;
-        const a = this.center(r), b = this.center(to);
-        this.line(a, b, 'exit');
+        const a = this.portPoint(r, e.dir);
+        const b = this.portPoint(to, e.dir ? opposite(e.dir) : undefined);
+        if (distToSegment(w, a, b) <= CONN_HIT) return { a: r.id, b: to.id };
       }
     }
+    return null;
+  }
+
+  // ── pointer handling ────────────────────────────────────────────────────────
+  private onDown(e: PointerEvent) {
+    this.svg.setPointerCapture(e.pointerId);
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (this.pointers.size >= 2) {           // second finger → pan; abandon any 1-finger gesture
+      this.act = null; this.ghost = null; this.panning = true; this.panLast = this.centroid();
+      this.render();
+      return;
+    }
+
+    const w = this.toWorld(e.clientX, e.clientY);
+    const dir = this.portAt(w);
+    if (dir && this.selectedId) {
+      this.act = { k: 'connect', from: this.selectedId, dir, pid: e.pointerId, moved: false };
+      const p = this.portPoint(this.selected!, dir);
+      this.ghost = { from: p, to: p };
+      return;
+    }
+    const room = this.roomAt(w);
+    if (room) { this.act = { k: 'room', id: room.id, gx: w.x - room.x, gy: w.y - room.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false }; return; }
+    const conn = this.connAt(w);
+    if (conn) { this.act = { k: 'conn', a: conn.a, b: conn.b, pid: e.pointerId, moved: false }; return; }
+    this.act = { k: 'empty', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
+  }
+
+  private onMove(e: PointerEvent) {
+    if (!this.pointers.has(e.pointerId)) return;
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (this.panning) {
+      const c = this.centroid();
+      this.panX += c.x - this.panLast.x; this.panY += c.y - this.panLast.y;
+      this.panLast = c; this.render(); return;
+    }
+    const a = this.act;
+    if (!a || a.pid !== e.pointerId) return;
+    const w = this.toWorld(e.clientX, e.clientY);
+
+    if (a.k === 'room') {
+      if (!a.moved && Math.hypot(e.clientX - a.sx, e.clientY - a.sy) < TAP_SLOP) return;
+      a.moved = true;
+      const r = this.world.rooms.find(x => x.id === a.id);
+      if (r) { r.x = w.x - a.gx; r.y = w.y - a.gy; this.render(); }
+    } else if (a.k === 'connect') {
+      a.moved = true; if (this.ghost) { this.ghost.to = w; this.render(); }
+    } else if (a.k === 'empty') {
+      if (!a.moved && Math.hypot(e.clientX - a.sx, e.clientY - a.sy) < TAP_SLOP) return;
+      this.act = { k: 'pan1', lx: e.clientX, ly: e.clientY, pid: e.pointerId };  // empty drag → pan
+    } else if (a.k === 'pan1') {
+      this.panX += e.clientX - a.lx; this.panY += e.clientY - a.ly;
+      a.lx = e.clientX; a.ly = e.clientY; this.render();
+    }
+  }
+
+  private onUp(e: PointerEvent) {
+    const world = this.toWorld(e.clientX, e.clientY);
+    this.pointers.delete(e.pointerId);
+    this.svg.releasePointerCapture?.(e.pointerId);
+
+    if (this.panning) {
+      if (this.pointers.size < 2) { this.panning = false; this.act = null; }
+      else this.panLast = this.centroid();
+      return;
+    }
+    const a = this.act;
+    if (!a || a.pid !== e.pointerId) { if (this.pointers.size === 0) this.act = null; return; }
+    this.act = null;
+
+    switch (a.k) {
+      case 'room':
+        if (a.moved) {
+          const r = this.world.rooms.find(x => x.id === a.id);
+          if (r) { r.x = snap(r.x); r.y = snap(r.y); }
+          this.render(); this.h.onChange();
+        } else {
+          this.select(this.world.rooms.find(x => x.id === a.id) ?? null);
+        }
+        break;
+      case 'connect': {
+        const target = this.roomAt(world);
+        this.ghost = null;
+        if (target && target.id !== a.from) { connect(this.world, a.from, target.id, a.dir); this.h.onChange(); }
+        this.render();
+        break;
+      }
+      case 'conn':
+        if (!a.moved) { disconnect(this.world, a.a, a.b); this.render(); this.h.onChange(); }
+        break;
+      case 'empty':
+        if (!a.moved) {
+          const r = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2));
+          this.world.rooms.push(r);
+          if (!this.world.start) this.world.start = r.id;
+          this.select(r); this.h.onChange();
+        }
+        break;
+      case 'pan1':
+        this.render();
+        break;
+    }
+  }
+
+  private centroid(): Pt {
+    let x = 0, y = 0;
+    for (const p of this.pointers.values()) { x += p.x; y += p.y; }
+    const n = this.pointers.size || 1;
+    return { x: x / n, y: y / n };
+  }
+
+  // ── render ──────────────────────────────────────────────────────────────────
+  render() {
+    const px = ((this.panX % GRID) + GRID) % GRID;
+    const py = ((this.panY % GRID) + GRID) % GRID;
+    let s = `
+      <defs>
+        <pattern id="grid" width="${GRID}" height="${GRID}" patternUnits="userSpaceOnUse"
+                 patternTransform="translate(${px} ${py})">
+          <path d="M ${GRID} 0 L 0 0 0 ${GRID}" class="grid-line" fill="none"/>
+        </pattern>
+      </defs>
+      <rect class="grid-bg" width="100%" height="100%" fill="url(#grid)"/>
+      <g transform="translate(${this.panX} ${this.panY})">`;
+
+    // connections (deduped)
+    const seen = new Set<string>();
+    for (const r of this.world.rooms) {
+      for (const e of r.exits) {
+        const key = [r.id, e.to].sort().join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const to = this.world.rooms.find(x => x.id === e.to);
+        if (!to) continue;
+        const a = this.portPoint(r, e.dir);
+        const b = this.portPoint(to, e.dir ? opposite(e.dir) : undefined);
+        s += `<line class="exit" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`;
+      }
+    }
+    if (this.ghost) s += `<line class="ghost" x1="${this.ghost.from.x}" y1="${this.ghost.from.y}" x2="${this.ghost.to.x}" y2="${this.ghost.to.y}"/>`;
+
     // rooms
-    for (const r of this.world.rooms) this.drawRoom(r);
-  }
+    for (const r of this.world.rooms) {
+      const cls = 'room' + (r.id === this.selectedId ? ' selected' : '') + (r.id === this.world.start ? ' start' : '');
+      s += `<g class="${cls}">
+        <rect x="${r.x}" y="${r.y}" width="${ROOM_W}" height="${ROOM_H}" rx="10"/>
+        <text x="${r.x + ROOM_W / 2}" y="${r.y + ROOM_H / 2}">${escapeXml(r.name)}</text>
+      </g>`;
+    }
+    // direction ports on the selected room
+    const sel = this.selected;
+    if (sel) for (const d of DIRS8) { const p = this.portPoint(sel, d); s += `<circle class="port" cx="${p.x}" cy="${p.y}" r="${PORT_R}"/>`; }
 
-  private line(a: Point, b: Point, cls: string) {
-    const l = document.createElementNS(SVG_NS, 'line');
-    l.setAttribute('x1', String(a.x)); l.setAttribute('y1', String(a.y));
-    l.setAttribute('x2', String(b.x)); l.setAttribute('y2', String(b.y));
-    l.setAttribute('class', cls);
-    this.svg.appendChild(l);
+    s += `</g>`;
+    this.svg.innerHTML = s;
   }
+}
 
-  private drawRoom(r: Room) {
-    const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', 'room' + (r.id === this.world.start ? ' start' : ''));
-    const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', String(r.x)); rect.setAttribute('y', String(r.y));
-    rect.setAttribute('width', String(ROOM_W)); rect.setAttribute('height', String(ROOM_H));
-    rect.setAttribute('rx', '12');
-    g.appendChild(rect);
-    const label = document.createElementNS(SVG_NS, 'text');
-    label.setAttribute('x', String(r.x + ROOM_W / 2));
-    label.setAttribute('y', String(r.y + ROOM_H / 2));
-    label.textContent = r.name;
-    g.appendChild(label);
-    this.svg.appendChild(g);
-  }
+function opposite(d: Direction): Direction {
+  const m: Record<Direction, Direction> = { n: 's', s: 'n', e: 'w', w: 'e', ne: 'sw', sw: 'ne', nw: 'se', se: 'nw', u: 'd', d: 'u', in: 'out', out: 'in' };
+  return m[d];
+}
+function distToSegment(p: Pt, a: Pt, b: Pt): number {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy || 1;
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+function escapeXml(s: string): string {
+  return s.replace(/[<>&]/g, (c) => (c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'));
 }

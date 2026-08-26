@@ -71,15 +71,38 @@ export function createRoom(x: number, y: number, name = 'New Room'): Room {
   return { id: newId('r'), name, x, y, properties: [], exits: [], things: [] };
 }
 
-/** Connect two rooms. Adds the reciprocal exit unless one-way. Idempotent per direction. */
+/** Connect two rooms. Adds the reciprocal exit unless one-way. Idempotent; updates
+ *  the direction if the exit already exists. */
 export function connect(world: World, fromId: string, toId: string, dir?: Direction, oneWay = false): void {
   const from = world.rooms.find(r => r.id === fromId);
   const to = world.rooms.find(r => r.id === toId);
   if (!from || !to || fromId === toId) return;
-  if (!from.exits.some(e => e.to === toId)) from.exits.push({ to: toId, dir, oneWay });
-  if (!oneWay && !to.exits.some(e => e.to === fromId))
-    to.exits.push({ to: fromId, dir: dir ? OPPOSITE[dir] : undefined });
+  const fe = from.exits.find(e => e.to === toId);
+  if (fe) { if (dir) fe.dir = dir; } else from.exits.push({ to: toId, dir, oneWay });
+  if (!oneWay) {
+    const te = to.exits.find(e => e.to === fromId);
+    if (te) { if (dir) te.dir = OPPOSITE[dir]; } else to.exits.push({ to: fromId, dir: dir ? OPPOSITE[dir] : undefined });
+  }
 }
+
+/** Remove the connection between two rooms (both directions). */
+export function disconnect(world: World, aId: string, bId: string): void {
+  const a = world.rooms.find(r => r.id === aId);
+  const b = world.rooms.find(r => r.id === bId);
+  if (a) a.exits = a.exits.filter(e => e.to !== bId);
+  if (b) b.exits = b.exits.filter(e => e.to !== aId);
+}
+
+/** Delete a room and any exits pointing at it. */
+export function deleteRoom(world: World, id: string): void {
+  world.rooms = world.rooms.filter(r => r.id !== id);
+  for (const r of world.rooms) r.exits = r.exits.filter(e => e.to !== id);
+  if (world.start === id) world.start = world.rooms[0]?.id;
+}
+
+/** Canvas grid cell size; rooms snap to it. */
+export const GRID = 40;
+export const snap = (v: number): number => Math.round(v / GRID) * GRID;
 
 export function setProperty(target: Room | Thing, key: string, value: PropertyValue): void {
   const existing = target.properties.find(p => p.key === key);
