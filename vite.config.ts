@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 
 // diorama ships as an installable PWA so it can live on an iPad home screen and
 // run offline. The manifest below drives "Add to Home Screen"; the service worker
@@ -14,11 +15,13 @@ export default defineConfig({
     // This is a local IF-authoring dev tool on a trusted LAN, so allow any host — that
     // covers `<machine>.local`, the LAN IP, Tailscale, etc. without hardcoding a hostname.
     allowedHosts: true,
-    // HMR over an mDNS ".local" host: point the live-reload socket at the same host
-    // the page was loaded from, so hot-reload works from the iPad too.
-    hmr: { clientPort: 5173 },
   },
   plugins: [
+    // Serve dev over HTTPS with a self-signed cert. getUserMedia / MediaRecorder (the mic
+    // capture behind hold-to-talk dictation) only work in a SECURE CONTEXT — i.e. https or
+    // localhost — so plain http://<host>.local can't record. Accept the cert warning once on
+    // the iPad and in-app dictation works. (Production/installed PWA is served over real https.)
+    basicSsl(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/diorama.svg'],

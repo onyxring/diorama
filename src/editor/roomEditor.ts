@@ -49,7 +49,9 @@ export function openRoomEditor(room: Room, onSave: () => void, autoDictate = fal
     if (busy || recorder) return;
     if (!isRecordingSupported()) {
       descEl.focus();                                  // last-ditch fallback: keyboard mic
-      hintEl.textContent = 'Mic capture unavailable — use your keyboard’s 🎤, or type.';
+      hintEl.textContent = !window.isSecureContext
+        ? 'In-app dictation needs an https connection (you’re on http). Use the keyboard 🎤 for now.'
+        : 'Mic capture isn’t available in this browser. Use the keyboard 🎤, or type.';
       return;
     }
     const t = activeTranscriber();
