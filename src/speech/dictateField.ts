@@ -1,6 +1,4 @@
-import { ensureMic, beginCapture, endCapture, micReady, isRecordingSupported } from './recorder';
-import { activeTranscriber } from './transcriber';
-import { setStatus } from '../editor/status';
+import { beginDictation, endDictation } from './dictate';
 
 // A labelled text field (single- or multi-line) with press-and-hold dictation.
 // Every editable text box in diorama is built from this, so "hold to talk" is
@@ -59,49 +57,28 @@ function attachHoldToTalk(
   let working = false;      // transcription in flight
 
   const begin = async () => {
-    if (working) return;
+    if (working || capturing) return;
     held = true;
-    if (!isRecordingSupported()) {
-      held = false;
-      input.focus();
-      setStatus(window.isSecureContext ? 'Mic capture unavailable — use the keyboard 🎤'
-                                       : 'In-app dictation needs https — using keyboard 🎤', 3000);
-      return;
-    }
-    if (!micReady()) {                          // first-ever press: acquire the mic (one-time)
-      setStatus('Enabling mic…');
-      try { await ensureMic(); }
-      catch { held = false; mic.classList.remove('rec'); setStatus('Microphone blocked', 2500); return; }
-      if (!held) { setStatus(null); return; }   // released during the one-time setup
-    }
-    beginCapture();                             // instant from here on
+    const ok = await beginDictation();
+    if (!ok) { held = false; input.focus(); return; }
     capturing = true;
     mic.classList.add('rec');
-    setStatus('Listening… release to transcribe');
+    if (!held) void end();                       // released during the one-time mic setup
   };
 
   const end = async () => {
     held = false;
-    if (!capturing) { mic.classList.remove('rec'); return; }
+    if (!capturing) return;
     capturing = false;
-    const pcm = endCapture();
     mic.classList.remove('rec'); mic.classList.add('busy');
     working = true;
-    setStatus(activeTranscriber().isLoaded ? 'Transcribing…' : 'Loading speech model…');
-    try {
-      const text = await activeTranscriber().transcribe(pcm, (f, m) =>
-        setStatus(f < 1 ? `${m} ${Math.round(f * 100)}%` : `${m}…`));
-      if (text) {
-        input.value = replace ? text : (input.value ? input.value.replace(/\s+$/, '') + ' ' : '') + text;
-        onChange();
-      }
-      setStatus(text ? null : 'Didn’t catch that', text ? undefined : 1800);
-    } catch {
-      setStatus('Transcription failed', 2500);
-    } finally {
-      working = false;
-      mic.classList.remove('busy');
+    const text = await endDictation(replace);    // names (replace) also drop trailing punctuation
+    if (text) {
+      input.value = replace ? text : (input.value ? input.value.replace(/\s+$/, '') + ' ' : '') + text;
+      onChange();
     }
+    working = false;
+    mic.classList.remove('busy');
   };
 
   mic.addEventListener('pointerdown', (e) => { e.preventDefault(); mic.setPointerCapture(e.pointerId); void begin(); });

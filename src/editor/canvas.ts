@@ -1,5 +1,6 @@
 import type { World, Room, Direction } from '../model/world';
 import { createRoom, connect, disconnect, snap, GRID } from '../model/world';
+import { beginDictation, endDictation } from '../speech/dictate';
 
 const NS = 'http://www.w3.org/2000/svg';
 const ROOM_W = 120;
@@ -20,6 +21,7 @@ type Act =
   | { k: 'connect'; from: string; dir: Direction; pid: number; moved: boolean }
   | { k: 'conn'; a: string; b: string; pid: number; moved: boolean }
   | { k: 'empty'; wx: number; wy: number; sx: number; sy: number; pid: number; moved: boolean }
+  | { k: 'createDictate'; id: string; pid: number }
   | { k: 'pan1'; lx: number; ly: number; pid: number };
 
 export interface CanvasHandlers {
@@ -38,6 +40,7 @@ export class Canvas {
   private act: Act | null = null;
   private panning = false;             // two-finger
   private panLast: Pt = { x: 0, y: 0 };
+  private lpTimer: number | undefined; // press-and-hold-on-empty timer
 
   constructor(private host: HTMLElement, private world: World, private h: CanvasHandlers) {
     this.svg = document.createElementNS(NS, 'svg');
@@ -123,6 +126,7 @@ export class Canvas {
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (this.pointers.size >= 2) {           // second finger → pan; abandon any 1-finger gesture
+      this.clearLp();
       this.act = null; this.ghost = null; this.panning = true; this.panLast = this.centroid();
       this.render();
       return;
@@ -141,6 +145,8 @@ export class Canvas {
     const conn = this.connAt(w);
     if (conn) { this.act = { k: 'conn', a: conn.a, b: conn.b, pid: e.pointerId, moved: false }; return; }
     this.act = { k: 'empty', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
+    // press-and-hold on empty → create a room here and start naming it by voice (#2)
+    this.lpTimer = window.setTimeout(() => this.startCreateDictate(e.pointerId), 450);
   }
 
   private onMove(e: PointerEvent) {
@@ -165,6 +171,7 @@ export class Canvas {
       a.moved = true; if (this.ghost) { this.ghost.to = w; this.render(); }
     } else if (a.k === 'empty') {
       if (!a.moved && Math.hypot(e.clientX - a.sx, e.clientY - a.sy) < TAP_SLOP) return;
+      this.clearLp();                                                            // a drag, not a hold
       this.act = { k: 'pan1', lx: e.clientX, ly: e.clientY, pid: e.pointerId };  // empty drag → pan
     } else if (a.k === 'pan1') {
       this.panX += e.clientX - a.lx; this.panY += e.clientY - a.ly;
@@ -176,6 +183,7 @@ export class Canvas {
     const world = this.toWorld(e.clientX, e.clientY);
     this.pointers.delete(e.pointerId);
     this.svg.releasePointerCapture?.(e.pointerId);
+    this.clearLp();
 
     if (this.panning) {
       if (this.pointers.size < 2) { this.panning = false; this.act = null; }
@@ -214,11 +222,34 @@ export class Canvas {
           this.select(r); this.h.onChange();
         }
         break;
+      case 'createDictate':
+        void this.finishCreateDictate(a.id);       // release ends the name dictation
+        break;
       case 'pan1':
         this.render();
         break;
     }
   }
+
+  // ── press-and-hold on empty: make a room + name it by voice (#2) ─────────────
+  private startCreateDictate(pid: number) {
+    if (!this.act || this.act.k !== 'empty' || this.act.pid !== pid) return;
+    const room = createRoom(snap(this.act.wx - ROOM_W / 2), snap(this.act.wy - ROOM_H / 2));
+    this.world.rooms.push(room);
+    if (!this.world.start) this.world.start = room.id;
+    this.selectedId = room.id;
+    this.act = { k: 'createDictate', id: room.id, pid };
+    this.render();
+    this.h.onSelect(room);     // show it in the panel
+    this.h.onChange();
+    void beginDictation('Listening… name the room');
+  }
+  private async finishCreateDictate(id: string) {
+    const text = await endDictation(true);        // names drop trailing punctuation
+    const r = this.world.rooms.find((x) => x.id === id);
+    if (r && text) { r.name = text; this.render(); this.h.onChange(); this.h.onSelect(r); }
+  }
+  private clearLp() { if (this.lpTimer !== undefined) { clearTimeout(this.lpTimer); this.lpTimer = undefined; } }
 
   private centroid(): Pt {
     let x = 0, y = 0;
