@@ -3,7 +3,7 @@ import type { World } from './model/world';
 import { currentWorld, currentName, saveCurrent } from './model/storage';
 import { Canvas } from './editor/canvas';
 import { Panel } from './editor/panel';
-import { initStatus } from './editor/status';
+import { initStatus, setStatus } from './editor/status';
 import { ensureMic, isRecordingSupported } from './speech/recorder';
 import { openSettings } from './editor/settingsView';
 import { openWorlds } from './editor/worldsView';
@@ -29,7 +29,13 @@ app.innerHTML = `
     <aside id="panel"></aside>
   </div>
   <div id="status" class="status"></div>
-  <div id="sheet" class="sheet hidden"><pre id="sheet-code"></pre><button id="sheet-close" class="btn">Close</button></div>
+  <div id="sheet" class="sheet hidden">
+    <pre id="sheet-code"></pre>
+    <div class="sheet-actions">
+      <button id="sheet-copy" class="btn">Copy</button>
+      <button id="sheet-close" class="btn">Close</button>
+    </div>
+  </div>
 `;
 
 initStatus(document.querySelector<HTMLElement>('#status')!);
@@ -119,6 +125,14 @@ const sheetCode = document.querySelector<HTMLElement>('#sheet-code')!;
 document.querySelector('#export')!.addEventListener('click', () => {
   sheetCode.textContent = getExporter('beguile')!.export(world);
   sheet.classList.remove('hidden');
+});
+document.querySelector('#sheet-copy')!.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(sheetCode.textContent || '');
+    setStatus('Copied to clipboard', 1500);
+  } catch {
+    setStatus('Copy failed — long-press the text to select', 2500);
+  }
 });
 document.querySelector('#sheet-close')!.addEventListener('click', () => sheet.classList.add('hidden'));
 

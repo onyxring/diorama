@@ -4,16 +4,25 @@ import { roomName, propType, isArrayType } from '../model/world';
 
 // The Beguile exporter — diorama's first target.
 //
-// NOTE: the exact room/exit API is still settling in the Beguile IF standard
-// library (bglStdLib). This emitter produces a clean, readable first cut — rooms
-// as objects with a description and directional exits, things nested inside — and
-// is the single place to update when that world model firms up.
+// Emits each object as a Beguile declaration `<type> <id> { … }`, where the object's TYPE is
+// the class (object, thing, room, …). Those classes come from the Beguile standard library /
+// your own definitions — this file only generates the world data. Properties carry Beguile
+// type declarations (string/int/array<dictionaryWord>/…), booleans become I6 attributes, and
+// directional exits use the standard-library `<dir>_to` notation.
 
 const DIR_PROP: Record<Direction, string> = {
   n: 'n_to', s: 's_to', e: 'e_to', w: 'w_to',
   ne: 'ne_to', nw: 'nw_to', se: 'se_to', sw: 'sw_to',
   u: 'u_to', d: 'd_to', in: 'in_to', out: 'out_to',
 };
+
+// Boolean flags that are I6 attributes → collected into `attributes = { … }`. Other booleans
+// are emitted as `bool key = …;` properties.
+const I6_ATTRIBUTES = new Set([
+  'light', 'container', 'supporter', 'openable', 'open', 'lockable', 'locked', 'on',
+  'switchable', 'static', 'scenery', 'concealed', 'edible', 'enterable', 'animate',
+  'transparent', 'clothing', 'worn', 'proper', 'pluralname', 'male', 'female', 'neuter', 'absent',
+]);
 
 function ident(name: string, fallback: string): string {
   const id = name.trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^(\d)/, '_$1');
@@ -28,7 +37,7 @@ function quote(s: string): string {
 function emitProperty(p: Property): string {
   const type = propType(p);
   const v = p.value;
-  if (type === 'bool') return v === true ? `    ${p.key};` : '';
+  if (type === 'bool') return `    bool ${p.key} = ${v === true ? 'true' : 'false'};`;
   if (type === 'int' || type === 'uint' || type === 'float') {
     const n = typeof v === 'number' ? v : (type === 'float' ? parseFloat(String(v)) : parseInt(String(v), 10));
     return Number.isFinite(n) ? `    ${type} ${p.key} = ${n};` : '';
@@ -45,17 +54,29 @@ function emitProperty(p: Property): string {
       : arr.map(x => quote(String(x)));
     return `    ${type} ${p.key} = {${elems.join(', ')}};`;
   }
-  return v ? `    ${p.key} = ${quote(String(v))};` : '';   // string
+  return v ? `    string ${p.key} = ${quote(String(v))};` : '';   // string
 }
 
 function emitRoom(room: Room, idOf: (id: string) => string): string {
-  const lines: string[] = [`worldObject ${idOf(room.id)} {`];
-  if (room.type && room.type !== 'object') lines.push(`    // kind: ${room.type}`);
-  if (room.parent) lines.push(`    // parent: ${idOf(room.parent)}`);
+  const type = (room.type || 'object').trim() || 'object';
+  const lines: string[] = [`${type} ${idOf(room.id)} {`];
+  if (room.parent) lines.push(`    parent = ${idOf(room.parent)};`);
+
+  // Boolean attributes → one `attributes = { … }` line; other properties emitted individually.
+  const attrs: string[] = [];
   for (const p of room.properties) {
+    if (propType(p) === 'bool' && p.value === true && I6_ATTRIBUTES.has(p.key.trim().toLowerCase())) {
+      attrs.push(p.key);
+    }
+  }
+  if (attrs.length) lines.push(`    attributes = {${attrs.join(', ')}};`);
+
+  for (const p of room.properties) {
+    if (propType(p) === 'bool' && p.value === true && I6_ATTRIBUTES.has(p.key.trim().toLowerCase())) continue;
     const line = emitProperty(p);
     if (line) lines.push(line);
   }
+
   for (const exit of room.exits) {
     const prop = exit.dir ? DIR_PROP[exit.dir] : undefined;
     if (prop) lines.push(`    ${prop} = ${idOf(exit.to)};`);
