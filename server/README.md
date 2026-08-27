@@ -7,12 +7,26 @@ iPad. diorama sends the audio here and gets text back.
 
 ```bash
 cd server
-./run.sh           # small model (default), http://127.0.0.1:8760
-./run.sh medium    # more accurate, slower on CPU
+./run.sh           # medium model (default), http://127.0.0.1:8760
+./run.sh large-v3  # most accurate, slower on CPU
+./run.sh small     # faster, less accurate
 ```
 
 First run creates a `.venv`, installs `faster-whisper`, and downloads the model
 (cached afterwards). Leave it running while you use diorama.
+
+### Accuracy
+
+Short, context-free clips (a one-word room name) are the hardest case — a small model will
+guess a more common similar-sounding word ("foyer" → "fire", "dining room" → "Daniel"). Two
+things counter that, both on by default:
+
+- **Domain priming** — the decoder is seeded with room vocabulary (`STT_PROMPT`), so it
+  favors "foyer", "parlor", "cellar" over homophones. Override with `DIORAMA_STT_PROMPT`
+  for a different setting/genre.
+- **A bigger model** — the default is now `medium`; use `large-v3` if your box can spare the
+  time. Each utterance is decoded independently (`condition_on_previous_text=False`) so names
+  don't bleed into each other.
 
 ## How diorama reaches it
 

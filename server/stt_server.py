@@ -35,8 +35,17 @@ import numpy as np
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from faster_whisper import WhisperModel
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else "small"
+MODEL = sys.argv[1] if len(sys.argv) > 1 else "medium"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8760
+
+# Whisper guesses a common similar-sounding word on short, context-free clips ("foyer" →
+# "fire", "dining room" → "Daniel"). Priming the decoder with the domain's vocabulary fixes
+# most of that at zero latency cost. Override with DIORAMA_STT_PROMPT for a different setting.
+STT_PROMPT = os.environ.get("DIORAMA_STT_PROMPT",
+    "Interactive fiction room names and descriptions. Common rooms: foyer, entrance hall, "
+    "parlor, drawing room, dining room, study, library, kitchen, pantry, scullery, cellar, "
+    "attic, hallway, landing, corridor, courtyard, garden, ballroom, gallery, chapel, crypt, "
+    "dungeon, tower, bedroom, bathroom, closet, balcony, veranda, conservatory, observatory.")
 
 LLM_BASE = os.environ.get("DIORAMA_LLM_URL", "http://127.0.0.1:11434/v1").rstrip("/")
 LLM_MODEL = os.environ.get("DIORAMA_LLM_MODEL", "")
@@ -178,7 +187,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if len(raw) >= 3200:                       # ignore < ~0.1 s of audio (stray taps)
                 audio = np.frombuffer(raw, dtype=np.float32).copy()
-                segments, _ = model.transcribe(audio, language="en", vad_filter=True)
+                segments, _ = model.transcribe(
+                    audio, language="en", vad_filter=True,
+                    initial_prompt=STT_PROMPT,          # bias toward room vocabulary
+                    condition_on_previous_text=False,   # each utterance is independent (names!)
+                    beam_size=5, temperature=0,         # deterministic, best-of-beam
+                )
                 text = "".join(seg.text for seg in segments).strip()
                 if text and want_polish:               # inline (blocking) polish — used only when
                     text = polish_text(text)           # a fast LLM box makes the wait acceptable

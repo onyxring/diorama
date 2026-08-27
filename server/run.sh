@@ -2,8 +2,9 @@
 # Start diorama's local speech-to-text server. First run creates a venv, installs
 # faster-whisper, and downloads the model (cached afterwards).
 #
-#   ./run.sh            # small model (default), port 8760
-#   ./run.sh medium     # a larger, more accurate model
+#   ./run.sh            # medium model (default), port 8760
+#   ./run.sh large-v3   # most accurate (slower on CPU)
+#   ./run.sh small      # faster, less accurate
 set -e
 cd "$(dirname "$0")"
 
@@ -14,4 +15,4 @@ if [ ! -d .venv ]; then
   ./.venv/bin/pip install --quiet -r requirements.txt
 fi
 
-exec ./.venv/bin/python stt_server.py "${1:-small}" "${2:-8760}"
+exec ./.venv/bin/python stt_server.py "${1:-medium}" "${2:-8760}"
