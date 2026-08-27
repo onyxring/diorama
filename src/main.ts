@@ -1,5 +1,6 @@
 import './style.css';
 import { emptyWorld } from './model/world';
+import { loadWorld, saveWorld } from './model/storage';
 import { Canvas } from './editor/canvas';
 import { Panel } from './editor/panel';
 import { initStatus } from './editor/status';
@@ -27,11 +28,11 @@ app.innerHTML = `
 
 initStatus(document.querySelector<HTMLElement>('#status')!);
 
-const world = emptyWorld('My World');
+const world = loadWorld() ?? emptyWorld('My World');
 const stage = document.querySelector<HTMLElement>('#stage')!;
 const panelHost = document.querySelector<HTMLElement>('#panel')!;
 
-const save = () => { /* hook autosave (IndexedDB) here later */ };
+const save = () => saveWorld(world);   // debounced; persists across refresh (see model/storage)
 
 const panel = new Panel(
   panelHost,
