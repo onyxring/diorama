@@ -1,6 +1,7 @@
 import type { World, Room, Direction } from '../model/world';
 import { createRoom, connect, disconnect, snap, GRID, setShortName, printedName } from '../model/world';
 import { beginDictation, endDictation } from '../speech/dictate';
+import { setStatus } from './status';
 
 const NS = 'http://www.w3.org/2000/svg';
 const ROOM_W = 120;
@@ -26,6 +27,7 @@ type Act =
 
 export interface CanvasHandlers {
   onSelect(room: Room | null): void;
+  onMultiSelect(rooms: Room[]): void;
   onChange(): void;
 }
 
@@ -42,6 +44,10 @@ export class Canvas {
   private panLast: Pt = { x: 0, y: 0 };
   private lpTimer: number | undefined; // press-and-hold-on-empty timer
 
+  private multi = false;               // "Select" (multi-select) mode
+  private multiSel = new Set<string>();
+  private pick: ((room: Room) => void) | null = null;  // parent-pick mode (from the panel)
+
   constructor(private host: HTMLElement, private world: World, private h: CanvasHandlers) {
     this.svg = document.createElementNS(NS, 'svg');
     this.svg.setAttribute('class', 'diorama-canvas');
@@ -56,14 +62,35 @@ export class Canvas {
   }
 
   get selected(): Room | null { return this.world.rooms.find(r => r.id === this.selectedId) ?? null; }
-  setWorld(w: World) { this.world = w; this.selectedId = null; this.recenter(); }
+  setWorld(w: World) { this.world = w; this.selectedId = null; this.multi = false; this.multiSel.clear(); this.pick = null; this.recenter(); }
   refresh() { this.render(); }
+  clearSelection() { this.selectedId = null; this.multiSel.clear(); this.render(); }
 
   select(room: Room | null) {
     this.selectedId = room?.id ?? null;
     this.render();
     this.h.onSelect(this.selected);
   }
+
+  /** Toggle "Select" mode — taps add/remove objects; the panel shows a bulk editor. */
+  setMultiMode(on: boolean) {
+    this.multi = on;
+    this.multiSel.clear();
+    this.selectedId = null;
+    this.pick = null;
+    this.render();
+    if (on) { setStatus('Select mode — tap objects to choose them', 2200); this.h.onMultiSelect([]); }
+    else this.h.onSelect(null);
+  }
+
+  /** Enter parent-pick mode: the next object tapped is passed to `cb`. */
+  beginPick(cb: (room: Room) => void) {
+    this.pick = cb;
+    setStatus('Tap an object to set as its parent (tap empty to cancel)');
+  }
+  private endPick() { this.pick = null; setStatus(null); }
+  private multiRooms(): Room[] { return this.world.rooms.filter(r => this.multiSel.has(r.id)); }
+  private isSelected(id: string): boolean { return this.multi ? this.multiSel.has(id) : id === this.selectedId; }
 
   recenter() {
     const rect = this.host.getBoundingClientRect();
@@ -132,8 +159,9 @@ export class Canvas {
       return;
     }
 
+    const plain = !this.multi && !this.pick;    // ports/connect/create/dictate only in normal mode
     const w = this.toWorld(e.clientX, e.clientY);
-    const dir = this.portAt(w);
+    const dir = plain ? this.portAt(w) : null;
     if (dir && this.selectedId) {
       this.act = { k: 'connect', from: this.selectedId, dir, pid: e.pointerId, moved: false };
       const p = this.portPoint(this.selected!, dir);
@@ -144,14 +172,14 @@ export class Canvas {
     if (room) {
       this.act = { k: 'room', id: room.id, gx: w.x - room.x, gy: w.y - room.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
       // press-and-hold on a room → (re)name it by voice; a drag cancels this and moves it
-      this.lpTimer = window.setTimeout(() => this.onLongPress(e.pointerId), 450);
+      if (plain) this.lpTimer = window.setTimeout(() => this.onLongPress(e.pointerId), 450);
       return;
     }
-    const conn = this.connAt(w);
+    const conn = plain ? this.connAt(w) : null;
     if (conn) { this.act = { k: 'conn', a: conn.a, b: conn.b, pid: e.pointerId, moved: false }; return; }
     this.act = { k: 'empty', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
-    // press-and-hold on empty → create a room here and name it by voice
-    this.lpTimer = window.setTimeout(() => this.onLongPress(e.pointerId), 450);
+    // press-and-hold on empty → create an object here and name it by voice
+    if (plain) this.lpTimer = window.setTimeout(() => this.onLongPress(e.pointerId), 450);
   }
 
   private onMove(e: PointerEvent) {
@@ -201,15 +229,22 @@ export class Canvas {
     this.act = null;
 
     switch (a.k) {
-      case 'room':
+      case 'room': {
+        const r = this.world.rooms.find(x => x.id === a.id);
         if (a.moved) {
-          const r = this.world.rooms.find(x => x.id === a.id);
-          if (r) { r.x = snap(r.x); r.y = snap(r.y); }
+          if (r) { r.x = snap(r.x); r.y = snap(r.y); this.applyDropParent(r); }
           this.render(); this.h.onChange();
+        } else if (this.pick) {
+          if (r) this.pick(r);
+          this.endPick();
+        } else if (this.multi) {
+          if (this.multiSel.has(a.id)) this.multiSel.delete(a.id); else this.multiSel.add(a.id);
+          this.render(); this.h.onMultiSelect(this.multiRooms());
         } else {
-          this.select(this.world.rooms.find(x => x.id === a.id) ?? null);
+          this.select(r ?? null);
         }
         break;
+      }
       case 'connect': {
         const target = this.roomAt(world);
         this.ghost = null;
@@ -222,10 +257,14 @@ export class Canvas {
         break;
       case 'empty':
         if (!a.moved) {
-          const r = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2));
-          this.world.rooms.push(r);
-          if (!this.world.start) this.world.start = r.id;
-          this.select(r); this.h.onChange();
+          if (this.pick) this.endPick();                          // tap empty → cancel parent pick
+          else if (this.multi) { this.multiSel.clear(); this.render(); this.h.onMultiSelect([]); }
+          else {
+            const r = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2));
+            this.world.rooms.push(r);
+            if (!this.world.start) this.world.start = r.id;
+            this.select(r); this.h.onChange();
+          }
         }
         break;
       case 'dictate':
@@ -257,14 +296,33 @@ export class Canvas {
     this.act = { k: 'dictate', id, pid };
     this.render();
     this.h.onSelect(this.world.rooms.find(r => r.id === id) ?? null);   // show it in the panel
-    void beginDictation('Listening… name the room');
+    void beginDictation('Listening… name the object');
   }
   private async finishDictate(id: string) {
     const text = await endDictation(true);        // names drop trailing punctuation
     const r = this.world.rooms.find((x) => x.id === id);
-    if (r && text) { setShortName(r, text); this.render(); this.h.onChange(); this.h.onSelect(r); }
+    if (r && text) { setShortName(this.world, r, text); this.render(); this.h.onChange(); this.h.onSelect(r); }
   }
   private clearLp() { if (this.lpTimer !== undefined) { clearTimeout(this.lpTimer); this.lpTimer = undefined; } }
+
+  // A room dropped so its center lands on another object becomes that object's child.
+  private applyDropParent(r: Room) {
+    const cx = r.x + ROOM_W / 2, cy = r.y + ROOM_H / 2;
+    for (let i = this.world.rooms.length - 1; i >= 0; i--) {
+      const o = this.world.rooms[i];
+      if (o.id === r.id) continue;
+      if (cx >= o.x && cx <= o.x + ROOM_W && cy >= o.y && cy <= o.y + ROOM_H) {
+        if (!this.wouldCycle(r, o)) r.parent = o.id;   // ignore drops that would loop the hierarchy
+        return;
+      }
+    }
+  }
+  // True if making `target` the parent of `r` would create a cycle (target descends from r).
+  private wouldCycle(r: Room, target: Room): boolean {
+    let cur: Room | undefined = target;
+    while (cur) { if (cur.id === r.id) return true; cur = this.world.rooms.find(x => x.id === cur!.parent); }
+    return false;
+  }
 
   private centroid(): Pt {
     let x = 0, y = 0;
@@ -303,16 +361,24 @@ export class Canvas {
     }
     if (this.ghost) s += `<line class="ghost" x1="${this.ghost.from.x}" y1="${this.ghost.from.y}" x2="${this.ghost.to.x}" y2="${this.ghost.to.y}"/>`;
 
+    // parent → child links (dotted, light blue)
+    for (const r of this.world.rooms) {
+      if (!r.parent) continue;
+      const p = this.world.rooms.find(x => x.id === r.parent);
+      if (!p) continue;
+      s += `<line class="parent-link" x1="${r.x + ROOM_W / 2}" y1="${r.y + ROOM_H / 2}" x2="${p.x + ROOM_W / 2}" y2="${p.y + ROOM_H / 2}"/>`;
+    }
+
     // rooms
     for (const r of this.world.rooms) {
-      const cls = 'room' + (r.id === this.selectedId ? ' selected' : '') + (r.id === this.world.start ? ' start' : '');
+      const cls = 'room' + (this.isSelected(r.id) ? ' selected' : '') + (r.id === this.world.start ? ' start' : '');
       s += `<g class="${cls}">
         <rect x="${r.x}" y="${r.y}" width="${ROOM_W}" height="${ROOM_H}" rx="10"/>
         <text x="${r.x + ROOM_W / 2}" y="${r.y + ROOM_H / 2}">${escapeXml(printedName(r))}</text>
       </g>`;
     }
-    // direction ports on the selected room
-    const sel = this.selected;
+    // direction ports on the selected room (normal mode only)
+    const sel = !this.multi && !this.pick ? this.selected : null;
     if (sel) for (const d of DIRS8) { const p = this.portPoint(sel, d); s += `<circle class="port" cx="${p.x}" cy="${p.y}" r="${PORT_R}"/>`; }
 
     s += `</g>`;

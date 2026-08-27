@@ -37,12 +37,15 @@ export interface Thing {
   properties: Property[];
 }
 
-/** A location. Position is editor layout only; it has no gameplay meaning. */
+/** A world object — a room, an item, an NPC, … Position is editor layout only. (Named `Room`
+ *  for historical reasons; `type` distinguishes what it actually is.) */
 export interface Room {
   id: string;
-  name: string;
+  name: string;                // Beguile object identifier — unique; derived from short name once
+  type: string;                // "object" (default), "room", "door", … — an authoring label
   x: number;                   // canvas position
   y: number;
+  parent?: string;             // id of the containing object, if any
   properties: Property[];      // description, flags, …
   exits: Exit[];
   things: Thing[];
@@ -67,15 +70,15 @@ export function emptyWorld(name = 'Untitled World'): World {
   return { name, rooms: [] };
 }
 
-export function createRoom(x: number, y: number, printed = 'New Room'): Room {
-  const room: Room = { id: newId('r'), name: 'room', x, y, properties: [], exits: [], things: [] };
-  setShortName(room, printed);
-  return room;
+export function createRoom(x: number, y: number): Room {
+  // No name yet → the first short name given will derive it (see setShortName).
+  return { id: newId('r'), name: '', type: 'object', x, y, properties: [], exits: [], things: [] };
 }
 
-// A room's `name` is its Beguile OBJECT IDENTIFIER — code, not prose. It is never typed
-// or dictated directly; it's derived from the human-facing short name. "The Dining Room"
-// → `diningRoom`. Beguile is case-insensitive, so exact casing is cosmetic.
+// A room's `name` is its Beguile OBJECT IDENTIFIER — code, not prose, and unique across the
+// world. It's derived from the human short name the FIRST time one is given ("The Dining Room"
+// → `diningRoom`); after that it's stable (renaming the short name won't change it), though the
+// author may edit it directly. Beguile is case-insensitive, so casing is cosmetic.
 export function beguileIdent(s: string): string {
   const stripped = s.trim().replace(/^(the|a|an)\s+/i, '');
   const words = stripped.split(/[^A-Za-z0-9]+/).filter(Boolean);
@@ -85,18 +88,45 @@ export function beguileIdent(s: string): string {
   return /^[0-9]/.test(id) ? '_' + id : id;
 }
 
+// Coerce arbitrary text into a valid identifier (for manual object-name edits).
+function sanitizeIdent(s: string): string {
+  const id = s.trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+  return /^[0-9]/.test(id) ? '_' + id : id;
+}
+
+/** Make `base` unique among the world's object names (appends 2, 3, … on collision). */
+export function uniqueName(world: World, base: string, exceptId?: string): string {
+  const b = base || 'object';
+  const taken = new Set(
+    world.rooms.filter((r) => r.id !== exceptId).map((r) => r.name).filter(Boolean),
+  );
+  if (!taken.has(b)) return b;
+  let n = 2;
+  while (taken.has(`${b}${n}`)) n += 1;
+  return `${b}${n}`;
+}
+
 /** The printed name shown to the player / on the canvas (the short name). */
 export function printedName(room: Room): string {
   const sn = room.properties.find((p) => p.key === 'short_name')?.value;
-  return (sn ? String(sn) : '') || room.name || 'room';
+  return (sn ? String(sn) : '') || room.name || 'New object';
 }
 
-/** Set the printed short name and re-derive the Beguile object identifier from it. */
-export function setShortName(room: Room, printed: string): void {
+/** Set the printed short name. Derives the object identifier from it ONLY if none is set yet. */
+export function setShortName(world: World, room: Room, printed: string): void {
   const t = printed.trim();
   if (t) setProperty(room, 'short_name', t);
   else room.properties = room.properties.filter((p) => p.key !== 'short_name');
-  room.name = beguileIdent(t) || 'room';
+  if (!room.name) {
+    const base = beguileIdent(t);
+    if (base) room.name = uniqueName(world, base, room.id);
+  }
+}
+
+/** Set the object identifier directly (manual edit); coerced to a valid, unique identifier. */
+export function setObjectName(world: World, room: Room, id: string): void {
+  const base = sanitizeIdent(id);
+  room.name = base ? uniqueName(world, base, room.id) : '';
 }
 
 /** Connect two rooms. Adds the reciprocal exit unless one-way. Idempotent; updates

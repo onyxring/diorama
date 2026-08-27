@@ -33,6 +33,8 @@ function emitProperty(p: Property): string {
 
 function emitRoom(room: Room, idOf: (id: string) => string): string {
   const lines: string[] = [`worldObject ${idOf(room.id)} {`];
+  if (room.type && room.type !== 'object') lines.push(`    // kind: ${room.type}`);
+  if (room.parent) lines.push(`    // parent: ${idOf(room.parent)}`);
   for (const p of room.properties) {
     const line = emitProperty(p);
     if (line) lines.push(line);

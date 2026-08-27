@@ -135,3 +135,30 @@ textarea.field-input { resize: vertical; min-height: 88px; }
 .settings-panel .field-input { width: 100%; }
 .settings-actions { display: flex; justify-content: flex-end; }
 .settings-actions .btn { margin: 0; }
+
+/* toolbar: world name + toggle-able Select mode */
+.worldname { font-weight: 600; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.on { background: var(--accent); color: #1c1917; }
+
+/* parent → child links on the canvas */
+.parent-link { stroke: #7dd3fc; stroke-width: 2; stroke-dasharray: 5 5; opacity: .85; }
+
+/* small inline field buttons (Choose / clear / rename / delete) */
+.field-btn {
+  flex: 0 0 auto; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line); font-size: 14px;
+}
+.field-btn:active { background: var(--accent); color: #1c1917; }
+.parent-view { flex: 1; display: flex; align-items: center; }
+.parent-view.muted { color: var(--muted); }
+
+/* worlds sheet */
+.world-list { display: flex; flex-direction: column; gap: 8px; }
+.world-row { display: flex; gap: 6px; align-items: center; }
+.world-open {
+  flex: 1; text-align: left; padding: 10px 12px; border-radius: 10px; cursor: pointer;
+  background: var(--panel); color: var(--ink); border: 1px solid var(--line); font-size: 15px;
+}
+.world-row.on .world-open { border-color: var(--accent); color: var(--accent-soft); }
+.world-new { display: flex; gap: 6px; margin-top: 10px; }
+.world-new .field-input { flex: 1; width: auto; }

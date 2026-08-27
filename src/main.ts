@@ -1,11 +1,12 @@
 import './style.css';
-import { emptyWorld } from './model/world';
-import { loadWorld, saveWorld } from './model/storage';
+import type { World } from './model/world';
+import { currentWorld, currentName, saveCurrent } from './model/storage';
 import { Canvas } from './editor/canvas';
 import { Panel } from './editor/panel';
 import { initStatus } from './editor/status';
 import { ensureMic, isRecordingSupported } from './speech/recorder';
 import { openSettings } from './editor/settingsView';
+import { openWorlds } from './editor/worldsView';
 import { getExporter } from './export';
 
 // ── layout ───────────────────────────────────────────────────────────────────
@@ -13,7 +14,9 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="toolbar">
     <span class="brand">di<span class="or">or</span>ama</span>
+    <button id="worlds" class="btn worldname" title="Worlds">${escapeHtml(currentName())} ▾</button>
     <div class="tb-spacer"></div>
+    <button id="select" class="btn icon" title="Select multiple">⬚</button>
     <button id="settings" class="btn icon" title="Settings">⚙</button>
     <button id="recenter" class="btn icon" title="Recenter">⌖</button>
     <button id="export" class="btn">Export</button>
@@ -28,23 +31,38 @@ app.innerHTML = `
 
 initStatus(document.querySelector<HTMLElement>('#status')!);
 
-const world = loadWorld() ?? emptyWorld('My World');
+let world = currentWorld();
 const stage = document.querySelector<HTMLElement>('#stage')!;
 const panelHost = document.querySelector<HTMLElement>('#panel')!;
+const worldsBtn = document.querySelector<HTMLButtonElement>('#worlds')!;
+const selectBtn = document.querySelector<HTMLButtonElement>('#select')!;
 
-const save = () => saveWorld(world);   // debounced; persists across refresh (see model/storage)
+const save = () => saveCurrent(world);   // debounced; persists across refresh (see model/storage)
+
+let canvas: Canvas;                      // forward ref for the panel's parent-pick callback
 
 const panel = new Panel(
   panelHost,
   world,
-  () => { canvas.refresh(); save(); },              // a field edit → re-render + save
-  () => { canvas.select(null); panel.show(null); save(); },  // room deleted
+  () => { canvas.refresh(); save(); },                          // a field edit → re-render + save
+  () => { canvas.clearSelection(); panel.show(null); save(); }, // object(s) deleted
+  (cb) => canvas.beginPick(cb),                                 // "Choose parent" → pick on canvas
 );
 
-const canvas = new Canvas(stage, world, {
+canvas = new Canvas(stage, world, {
   onSelect: (room) => panel.show(room),
+  onMultiSelect: (rooms) => panel.showSelection(rooms),
   onChange: () => save(),
 });
+
+// Switch/create/delete a world → repoint the editor at it.
+const activateWorld = (w: World) => {
+  world = w;
+  canvas.setWorld(world);
+  panel.setWorld(world);
+  selectBtn.classList.remove('on');                            // setWorld exits Select mode
+  worldsBtn.textContent = `${currentName()} ▾`;
+};
 
 // ── warm mic + model on first interaction ──────────────────────────────────────
 // iOS needs a user gesture to prompt for the mic, so it can't be literally at page open —
@@ -61,6 +79,12 @@ app.addEventListener('pointerdown', async () => {
 });
 
 // ── toolbar actions ────────────────────────────────────────────────────────────
+worldsBtn.addEventListener('click', () => openWorlds(activateWorld));
+selectBtn.addEventListener('click', () => {
+  const on = !selectBtn.classList.contains('on');
+  selectBtn.classList.toggle('on', on);
+  canvas.setMultiMode(on);
+});
 document.querySelector('#settings')!.addEventListener('click', () => openSettings());
 document.querySelector('#recenter')!.addEventListener('click', () => canvas.recenter());
 
@@ -71,6 +95,10 @@ document.querySelector('#export')!.addEventListener('click', () => {
   sheet.classList.remove('hidden');
 });
 document.querySelector('#sheet-close')!.addEventListener('click', () => sheet.classList.add('hidden'));
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 // ── PWA service worker ──────────────────────────────────────────────────────────
 import { registerSW } from 'virtual:pwa-register';
