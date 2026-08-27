@@ -39,27 +39,32 @@ MODEL = sys.argv[1] if len(sys.argv) > 1 else "medium"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8760
 
 # Whisper guesses a common similar-sounding word on short, context-free clips ("foyer" →
-# "fire", "dining room" → "Daniel"). Priming the decoder with the domain's vocabulary fixes
-# most of that at zero latency cost. Override with DIORAMA_STT_PROMPT for a different setting.
-STT_PROMPT = os.environ.get("DIORAMA_STT_PROMPT",
-    "Interactive fiction room names and descriptions. Common rooms: foyer, entrance hall, "
-    "parlor, drawing room, dining room, study, library, kitchen, pantry, scullery, cellar, "
-    "attic, hallway, landing, corridor, courtyard, garden, ballroom, gallery, chapel, crypt, "
-    "dungeon, tower, bedroom, bathroom, closet, balcony, veranda, conservatory, observatory.")
+# "fire"). Priming the decoder with vocabulary counters that — but a hardcoded room list would
+# mis-bias games that AREN'T set in rooms (a starship, a moor, an abstract space), so there's
+# NO default prompt. The larger (medium) model carries accuracy generically; set
+# DIORAMA_STT_PROMPT to prime your own setting's vocabulary if you want (rooms, ship
+# compartments, character or place names — whatever fits the game).
+STT_PROMPT = os.environ.get("DIORAMA_STT_PROMPT", "")
 
 LLM_BASE = os.environ.get("DIORAMA_LLM_URL", "http://127.0.0.1:11434/v1").rstrip("/")
 LLM_MODEL = os.environ.get("DIORAMA_LLM_MODEL", "")
 
 # Firm, conservative instructions: add quotes + punctuation, never touch the wording.
-# The explicit "don't wrap the whole thing / only quote spoken words / no quotes if nothing
-# is spoken" rules matter — without them, models tend to quote the entire description.
+# Learned from testing: quote EVERY spoken line — including first-person replies with trailing
+# attribution ("…, I responded"), which models otherwise miss — but never quote plain narration.
+# The one-shot example teaches the trailing-attribution case. "prose" (not "room descriptions")
+# keeps it genre-neutral.
 POLISH_SYSTEM = (
-    "You are a careful copy editor for interactive-fiction room descriptions. "
-    "The text came from speech-to-text, so it lacks punctuation and quotation marks. "
-    "Add punctuation and capitalization, and put DOUBLE quotation marks ONLY around words "
-    "a character speaks aloud. Do not wrap the whole description in quotes. If nothing is "
-    "spoken, add no quotes. Do not change, add, remove, reorder, or paraphrase any words. "
-    "Do not add commentary, labels, or markdown. Return only the corrected text."
+    "You are a careful copy editor for interactive-fiction prose. The text came from "
+    "speech-to-text, so it lacks punctuation and quotation marks. Add punctuation and "
+    "capitalization, and put DOUBLE quotation marks around EVERY line of spoken dialogue — "
+    "including first-person replies, whether the attribution comes BEFORE or AFTER the spoken "
+    "words (e.g. 'I said X', 'X, I responded', 'he asked X', 'X, she whispered'). Keep every "
+    "word in its original order; do not add, remove, reorder, or paraphrase any words, and do "
+    "not put quotes around narration that is not spoken aloud. If nothing is spoken, add no "
+    "quotes. Do not add commentary, labels, or markdown. Return only the corrected text.\n"
+    "Example input: she called out who goes there nobody i lied quietly\n"
+    "Example output: She called out, \"Who goes there?\" \"Nobody,\" I lied quietly."
 )
 
 
@@ -189,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
                 audio = np.frombuffer(raw, dtype=np.float32).copy()
                 segments, _ = model.transcribe(
                     audio, language="en", vad_filter=True,
-                    initial_prompt=STT_PROMPT,          # bias toward room vocabulary
+                    initial_prompt=STT_PROMPT or None,  # opt-in vocab priming (none by default)
                     condition_on_previous_text=False,   # each utterance is independent (names!)
                     beam_size=5, temperature=0,         # deterministic, best-of-beam
                 )

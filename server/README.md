@@ -17,16 +17,20 @@ First run creates a `.venv`, installs `faster-whisper`, and downloads the model
 
 ### Accuracy
 
-Short, context-free clips (a one-word room name) are the hardest case — a small model will
-guess a more common similar-sounding word ("foyer" → "fire", "dining room" → "Daniel"). Two
-things counter that, both on by default:
+Short, context-free clips (a one-word name) are the hardest case — a small model will guess
+a more common similar-sounding word ("foyer" → "fire", "dining room" → "Daniel"). Countering
+that, without assuming any particular genre:
 
-- **Domain priming** — the decoder is seeded with room vocabulary (`STT_PROMPT`), so it
-  favors "foyer", "parlor", "cellar" over homophones. Override with `DIORAMA_STT_PROMPT`
-  for a different setting/genre.
-- **A bigger model** — the default is now `medium`; use `large-v3` if your box can spare the
-  time. Each utterance is decoded independently (`condition_on_previous_text=False`) so names
-  don't bleed into each other.
+- **A bigger model** — the default is now `medium` (was `small`); use `large-v3` if your box
+  can spare the time. Each utterance is decoded independently (`condition_on_previous_text=
+  False`) so names don't bleed into each other. This is the generic accuracy lever.
+- **Optional vocabulary priming** — `DIORAMA_STT_PROMPT` seeds the decoder with words it should
+  favor. It's **empty by default** (a hardcoded room list would mis-bias a game set on a
+  starship or a moor). Set it to your own setting's vocabulary if you like:
+
+  ```bash
+  DIORAMA_STT_PROMPT="Ship compartments: airlock, bridge, engineering, medbay, cargo hold." ./run.sh
+  ```
 
 ## How diorama reaches it
 
