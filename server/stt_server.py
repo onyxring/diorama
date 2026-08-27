@@ -57,7 +57,9 @@ LLM_MODEL = os.environ.get("DIORAMA_LLM_MODEL", "")
 POLISH_SYSTEM = (
     "You are a careful copy editor for interactive-fiction prose. The text came from "
     "speech-to-text, so it lacks punctuation and quotation marks. Add punctuation and "
-    "capitalization, and put DOUBLE quotation marks around EVERY line of spoken dialogue — "
+    "capitalization — including commas where they belong: before or after a dialogue tag "
+    "(he said, she asked), after an introductory phrase, between items in a series, and "
+    "around parenthetical asides. Put DOUBLE quotation marks around EVERY line of spoken dialogue — "
     "including first-person replies, whether the attribution comes BEFORE or AFTER the spoken "
     "words (e.g. 'I said X', 'X, I responded', 'he asked X', 'X, she whispered'). Keep every "
     "word in its original order; do not add, remove, reorder, or paraphrase any words, and do "
@@ -116,6 +118,29 @@ def detect_model():
 
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_OPENERS = "([{<—–-/"
+
+
+def _smarten(s):
+    """Educate straight quotes/apostrophes into curly ones (SmartyPants-style).
+
+    Normalizes any existing curly quotes back to straight first, so the result is consistent
+    regardless of what the model emitted."""
+    s = s.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    out = []
+    for i, ch in enumerate(s):
+        prev = s[i - 1] if i > 0 else ""
+        opening = prev == "" or prev.isspace() or prev in _OPENERS
+        if ch == '"':
+            out.append("“" if opening else "”")
+        elif ch == "'":
+            if prev.isalnum():
+                out.append("’")            # contraction / possessive (don't, cats')
+            else:
+                out.append("‘" if opening else "’")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def _strip_wrapping(s):
@@ -146,7 +171,7 @@ def polish_text(text):
             "stream": False,
         }, timeout=180)
         out = _strip_wrapping(d.get("choices", [{}])[0].get("message", {}).get("content") or "")
-        return out or text
+        return _smarten(out) if out else text
     except Exception as err:
         print(f"[diorama-stt] polish error: {err}", flush=True)
         return text
