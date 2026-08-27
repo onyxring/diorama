@@ -6,6 +6,12 @@ export interface TranscribeProgress {
   (fraction: number, message: string): void;
 }
 
+export interface TranscribeOptions {
+  /** Ask for an LLM copy-edit (quotes + punctuation) after transcription. Honored by the
+   *  local server, which does the LLM hop itself; other engines ignore it. */
+  polish?: boolean;
+}
+
 export interface Transcriber {
   readonly id: string;
   readonly label: string;
@@ -14,7 +20,7 @@ export interface Transcriber {
   /** Warm the engine (download/init the model). Idempotent; safe to call eagerly. */
   load(onProgress?: TranscribeProgress): Promise<void>;
   /** Transcribe 16 kHz mono PCM to text. */
-  transcribe(pcm16k: Float32Array, onProgress?: TranscribeProgress): Promise<string>;
+  transcribe(pcm16k: Float32Array, onProgress?: TranscribeProgress, opts?: TranscribeOptions): Promise<string>;
 }
 
 import { whisperTranscriber } from './whisper';

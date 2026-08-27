@@ -1,5 +1,6 @@
 import { ensureMic, beginCapture, endCapture, micReady, isRecordingSupported } from './recorder';
 import { activeTranscriber } from './transcriber';
+import { getSettings } from '../settings';
 import { setStatus } from '../editor/status';
 
 // Shared one-shot dictation: begin on press, end on release. Used by the panel's
@@ -26,15 +27,22 @@ export async function beginDictation(listeningMsg = 'Listening… release to tra
   return true;
 }
 
-/** Stop capturing and transcribe. `stripTrailingPunct` for name-like fields (#1). */
-export async function endDictation(stripTrailingPunct = false): Promise<string> {
+/**
+ * Stop capturing and transcribe.
+ * @param stripTrailingPunct  drop a trailing period etc. — for name-like fields.
+ * @param longForm            descriptions & other prose — enables LLM polish (quotes +
+ *                            punctuation) when the setting is on. Names stay verbatim.
+ */
+export async function endDictation(stripTrailingPunct = false, longForm = false): Promise<string> {
   if (!active) return '';
   active = false;
   const pcm = await endCapture();
-  setStatus(activeTranscriber().isLoaded ? 'Transcribing…' : 'Loading speech model…');
+  const polish = longForm && getSettings().polish;
+  setStatus(!activeTranscriber().isLoaded ? 'Loading speech model…'
+            : polish ? 'Transcribing & polishing…' : 'Transcribing…');
   try {
     let text = await activeTranscriber().transcribe(pcm, (f, m) =>
-      setStatus(f < 1 ? `${m} ${Math.round(f * 100)}%` : `${m}…`));
+      setStatus(f < 1 ? `${m} ${Math.round(f * 100)}%` : `${m}…`), { polish });
     if (stripTrailingPunct) text = text.replace(/[.,;:!?…\s]+$/u, '');
     setStatus(text ? null : 'Didn’t catch that', text ? undefined : 1800);
     return text;

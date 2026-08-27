@@ -41,7 +41,7 @@ export function makeDictField(o: DictFieldOptions): DictField {
 
   wrap.append(input, mic);
   row.append(label, wrap);
-  attachHoldToTalk(mic, input, !!o.replace, () => o.onInput(input.value));
+  attachHoldToTalk(mic, input, !!o.replace, !!o.multiline, () => o.onInput(input.value));
 
   return { row, input, setValue: (v) => { input.value = v; } };
 }
@@ -50,6 +50,7 @@ function attachHoldToTalk(
   mic: HTMLButtonElement,
   input: HTMLInputElement | HTMLTextAreaElement,
   replace: boolean,
+  longForm: boolean,
   onChange: () => void,
 ): void {
   let held = false;         // is the button currently pressed?
@@ -72,7 +73,7 @@ function attachHoldToTalk(
     capturing = false;
     mic.classList.remove('rec'); mic.classList.add('busy');
     working = true;
-    const text = await endDictation(replace);    // names (replace) also drop trailing punctuation
+    const text = await endDictation(replace, longForm);  // names drop trailing punct; long-form gets LLM polish
     if (text) {
       input.value = replace ? text : (input.value ? input.value.replace(/\s+$/, '') + ' ' : '') + text;
       onChange();

@@ -10,10 +10,12 @@ export const localServerTranscriber: Transcriber = {
   get isLoaded() { return true; },
   load: async () => {},
 
-  async transcribe(pcm16k) {
+  async transcribe(pcm16k, _onProgress, opts) {
     let res: Response;
     try {
-      res = await fetch('/stt', {
+      // ?polish=1 → the server copy-edits (quotes + punctuation) after transcribing, in
+      // one round trip. The iPad still makes a single request; the LLM hop is server-local.
+      res = await fetch(opts?.polish ? '/stt?polish=1' : '/stt', {
         method: 'POST',
         headers: { 'content-type': 'application/octet-stream' },
         body: pcm16k.buffer as ArrayBuffer,   // raw float32 bytes (fresh full-buffer array)

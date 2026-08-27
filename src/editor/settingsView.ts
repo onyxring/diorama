@@ -30,6 +30,12 @@ export function openSettings(): void {
       <label class="field-label">OpenAI API key
         <input class="field-input" id="openaiKey" type="password" placeholder="sk-…" value="${esc(s.openaiKey)}"/>
       </label>
+      <h2>Description polish</h2>
+      <label class="engine ${s.polish ? 'on' : ''}" id="polish-row">
+        <input type="checkbox" id="polish" ${s.polish ? 'checked' : ''}/>
+        <span class="engine-label">Polish long descriptions</span>
+        <span class="engine-note">Adds quotation marks and punctuation to dictated descriptions with a local LLM, without changing your words. Runs on the Local-server engine (Odin) only; names are never altered.</span>
+      </label>
       <div class="settings-actions"><button class="btn" id="settings-done">Done</button></div>
     </div>`;
   document.body.appendChild(overlay);
@@ -43,6 +49,11 @@ export function openSettings(): void {
     saveSettings({ groqKey: (e.target as HTMLInputElement).value.trim() }));
   overlay.querySelector<HTMLInputElement>('#openaiKey')!.addEventListener('input', (e) =>
     saveSettings({ openaiKey: (e.target as HTMLInputElement).value.trim() }));
+  overlay.querySelector<HTMLInputElement>('#polish')!.addEventListener('change', (e) => {
+    const on = (e.target as HTMLInputElement).checked;
+    saveSettings({ polish: on });
+    overlay.querySelector('#polish-row')!.classList.toggle('on', on);
+  });
 
   const close = () => overlay.remove();
   overlay.querySelector('#settings-done')!.addEventListener('click', close);
