@@ -19,6 +19,7 @@ export default defineConfig({
     // only ever calls this same (https) origin — no CORS, no mixed content.
     proxy: {
       '/stt': { target: 'http://127.0.0.1:8760', changeOrigin: true },
+      '/polish': { target: 'http://127.0.0.1:8760', changeOrigin: true },
     },
   },
   plugins: [

@@ -1,4 +1,6 @@
 import { beginDictation, endDictation } from './dictate';
+import { polishAvailable, requestPolish } from './polish';
+import { setStatus } from '../editor/status';
 
 // A labelled text field (single- or multi-line) with press-and-hold dictation.
 // Every editable text box in diorama is built from this, so "hold to talk" is
@@ -73,13 +75,34 @@ function attachHoldToTalk(
     capturing = false;
     mic.classList.remove('rec'); mic.classList.add('busy');
     working = true;
-    const text = await endDictation(replace, longForm);  // names drop trailing punct; long-form gets LLM polish
-    if (text) {
-      input.value = replace ? text : (input.value ? input.value.replace(/\s+$/, '') + ' ' : '') + text;
+    const raw = await endDictation(replace);   // replace also strips trailing punctuation (names)
+    if (raw) {
+      input.value = replace ? raw : (input.value ? input.value.replace(/\s+$/, '') + ' ' : '') + raw;
       onChange();
     }
     working = false;
     mic.classList.remove('busy');
+    // Long-form fields get an async copy-edit (quotes + punctuation) that doesn't block.
+    if (raw && longForm && polishAvailable()) void polishInBackground(raw);
+  };
+
+  // Polish the just-dictated chunk in the background; swap it in when it returns — but only
+  // if the field still ends with that exact raw text (user hasn't edited or re-dictated).
+  const polishInBackground = async (raw: string) => {
+    mic.classList.add('busy');
+    setStatus('Polishing in background…', 2500);
+    try {
+      const polished = await requestPolish(raw);
+      if (polished && polished !== raw && input.value.endsWith(raw)) {
+        input.value = input.value.slice(0, -raw.length) + polished;
+        onChange();
+        setStatus('Description polished ✨', 1800);
+      }
+    } catch {
+      setStatus('Polish unavailable', 2000);
+    } finally {
+      mic.classList.remove('busy');
+    }
   };
 
   mic.addEventListener('pointerdown', (e) => { e.preventDefault(); mic.setPointerCapture(e.pointerId); void begin(); });

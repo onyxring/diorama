@@ -34,7 +34,7 @@ export function openSettings(): void {
       <label class="engine ${s.polish ? 'on' : ''}" id="polish-row">
         <input type="checkbox" id="polish" ${s.polish ? 'checked' : ''}/>
         <span class="engine-label">Polish long descriptions</span>
-        <span class="engine-note">Adds quotation marks and punctuation to dictated descriptions with a local LLM, without changing your words. Runs on the Local-server engine (Odin) only; names are never altered.</span>
+        <span class="engine-note">Adds quotation marks and punctuation to dictated descriptions with a local LLM, without changing your words. Runs in the background — text appears immediately and refines a moment later. Local-server engine (Odin) only; names are never altered.</span>
       </label>
       <div class="settings-actions"><button class="btn" id="settings-done">Done</button></div>
     </div>`;

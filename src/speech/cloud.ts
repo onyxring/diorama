@@ -12,7 +12,7 @@ function makeCloud(id: string, label: string, endpoint: string, model: string, k
     get isLoaded() { return true; },
     load: async () => {},
 
-    async transcribe(pcm16k, _onProgress, _opts) {
+    async transcribe(pcm16k) {
       const key = String(getSettings()[keyField] ?? '');
       if (!key) throw new Error(`Add your ${label} API key in Settings`);
       const form = new FormData();

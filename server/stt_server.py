@@ -26,6 +26,7 @@ diorama's Vite dev server proxies /stt → http://127.0.0.1:8760, so the browser
 talks to the same (https) origin; this server stays bound to localhost.
 """
 import os
+import re
 import sys
 import json
 import urllib.request
@@ -61,22 +62,41 @@ def _http_json(url, payload=None, timeout=60):
         return json.loads(r.read().decode())
 
 
+# When the model isn't pinned, prefer a capable general instruct model — and DON'T grab
+# whatever happens to be first (that box may host embedding or specialized models for other
+# projects). Lower index = more preferred; embedding models are excluded outright.
+PREFERRED = ("qwen3", "qwen2.5", "qwen2", "llama3.3", "llama3.2", "llama3.1",
+             "llama3", "gemma3", "gemma2", "gemma", "mistral", "phi")
+
+
+def _rank(name):
+    low = name.lower()
+    for i, p in enumerate(PREFERRED):
+        if p in low:
+            return i
+    return len(PREFERRED)
+
+
 def detect_model():
-    """Pick a model if none was configured — whatever the LLM server has loaded first."""
+    """Pick a sensible instruct model if none was configured."""
     global LLM_MODEL
     if LLM_MODEL:
         return LLM_MODEL
     try:
         d = _http_json(LLM_BASE + "/models", timeout=3)
-        ids = [m.get("id") for m in d.get("data", []) if m.get("id")]
+        ids = [m.get("id") for m in d.get("data", []) if m.get("id") and "embed" not in m.get("id").lower()]
+        ids.sort(key=_rank)
         LLM_MODEL = ids[0] if ids else ""
     except Exception:
         LLM_MODEL = ""
     return LLM_MODEL
 
 
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
 def _strip_wrapping(s):
-    s = s.strip()
+    s = _THINK_RE.sub("", s).strip()              # drop reasoning models' <think>…</think>
     if s.startswith("```"):                       # drop an accidental code fence
         s = s.strip("`").strip()
         if "\n" in s:                             # ```lang\n...\n```
@@ -89,16 +109,19 @@ def _strip_wrapping(s):
 def polish_text(text):
     if not text or not LLM_MODEL:
         return text
+    system = POLISH_SYSTEM
+    if LLM_MODEL.lower().startswith("qwen3"):     # Qwen3 reasons unless told not to
+        system += " /no_think"
     try:
         d = _http_json(LLM_BASE + "/chat/completions", {
             "model": LLM_MODEL,
             "messages": [
-                {"role": "system", "content": POLISH_SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": text},
             ],
             "temperature": 0,
             "stream": False,
-        }, timeout=60)
+        }, timeout=180)
         out = _strip_wrapping(d.get("choices", [{}])[0].get("message", {}).get("content") or "")
         return out or text
     except Exception as err:
@@ -127,20 +150,35 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        want_polish = parse_qs(urlparse(self.path).query).get("polish", ["0"])[0] in ("1", "true", "yes")
+        path = urlparse(self.path).path
         n = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(n) if n else b""
+
+        if path.startswith("/polish"):
+            # Text-only copy-edit (quotes + punctuation) — diorama calls this in the
+            # background after transcription so the LLM latency never blocks dictation.
+            text = ""
+            try:
+                text = polish_text(json.loads(raw.decode() or "{}").get("text", ""))
+            except Exception as err:
+                print(f"[diorama-stt] polish request error: {err}", flush=True)
+            return self._json({"text": text})
+
+        want_polish = parse_qs(urlparse(self.path).query).get("polish", ["0"])[0] in ("1", "true", "yes")
         text = ""
         try:
             if len(raw) >= 3200:                       # ignore < ~0.1 s of audio (stray taps)
                 audio = np.frombuffer(raw, dtype=np.float32).copy()
                 segments, _ = model.transcribe(audio, language="en", vad_filter=True)
                 text = "".join(seg.text for seg in segments).strip()
-                if text and want_polish:
-                    text = polish_text(text)
+                if text and want_polish:               # inline (blocking) polish — used only when
+                    text = polish_text(text)           # a fast LLM box makes the wait acceptable
         except Exception as err:                        # never let one bad request kill the server
             print(f"[diorama-stt] transcribe error: {err}", flush=True)
-        body = json.dumps({"text": text}).encode()
+        self._json({"text": text})
+
+    def _json(self, obj):
+        body = json.dumps(obj).encode()
         self.send_response(200)
         self._cors()
         self.send_header("content-type", "application/json")

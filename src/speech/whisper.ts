@@ -37,7 +37,7 @@ export const whisperTranscriber: Transcriber = {
   label: 'Whisper (on-device)',
   get isLoaded() { return pipe !== null; },
   load: (onProgress) => ensureLoaded(onProgress),
-  async transcribe(pcm16k, onProgress, _opts) {
+  async transcribe(pcm16k, onProgress) {
     await ensureLoaded(onProgress);
     onProgress?.(1, 'transcribing');
     const out: any = await pipe(pcm16k);
