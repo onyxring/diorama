@@ -42,12 +42,15 @@ LLM_BASE = os.environ.get("DIORAMA_LLM_URL", "http://127.0.0.1:11434/v1").rstrip
 LLM_MODEL = os.environ.get("DIORAMA_LLM_MODEL", "")
 
 # Firm, conservative instructions: add quotes + punctuation, never touch the wording.
+# The explicit "don't wrap the whole thing / only quote spoken words / no quotes if nothing
+# is spoken" rules matter — without them, models tend to quote the entire description.
 POLISH_SYSTEM = (
     "You are a careful copy editor for interactive-fiction room descriptions. "
     "The text came from speech-to-text, so it lacks punctuation and quotation marks. "
-    "Your ONLY job is to add quotation marks around spoken dialogue and fix obvious "
-    "punctuation and capitalization. Do NOT change, add, remove, reorder, or paraphrase "
-    "any words. Do NOT add commentary, labels, or markdown. Return only the corrected text."
+    "Add punctuation and capitalization, and put DOUBLE quotation marks ONLY around words "
+    "a character speaks aloud. Do not wrap the whole description in quotes. If nothing is "
+    "spoken, add no quotes. Do not change, add, remove, reorder, or paraphrase any words. "
+    "Do not add commentary, labels, or markdown. Return only the corrected text."
 )
 
 
@@ -64,21 +67,27 @@ def _http_json(url, payload=None, timeout=60):
 
 # When the model isn't pinned, prefer a capable general instruct model — and DON'T grab
 # whatever happens to be first (that box may host embedding or specialized models for other
-# projects). Lower index = more preferred; embedding models are excluded outright.
-PREFERRED = ("qwen3", "qwen2.5", "qwen2", "llama3.3", "llama3.2", "llama3.1",
-             "llama3", "gemma3", "gemma2", "gemma", "mistral", "phi")
+# projects). For THIS task, non-reasoning instruct models win: reasoning models (qwen3, …)
+# burn minutes "thinking" on CPU, so they rank below qwen2.5/llama/gemma instruct families.
+# Among a family, a ~7-8B model is the sweet spot (faithful yet fast); tiny models drop/mangle
+# words and huge ones are slow, so both are penalized. Embedding models are excluded outright.
+PREFERRED = ("qwen2.5", "llama3.3", "llama3.2", "llama3.1", "gemma3", "gemma2",
+             "qwen3", "mistral", "phi", "gemma", "llama3", "qwen2")
+
+
+def _size_b(name):
+    m = re.search(r"(\d+(?:\.\d+)?)\s*b", name.lower())
+    return float(m.group(1)) if m else 8.0     # unknown → assume mid-size
 
 
 def _rank(name):
     low = name.lower()
-    for i, p in enumerate(PREFERRED):
-        if p in low:
-            return i
-    return len(PREFERRED)
+    fam = next((i for i, p in enumerate(PREFERRED) if p in low), len(PREFERRED))
+    return (fam, abs(_size_b(low) - 8.0))       # prefer family, then ~8B
 
 
 def detect_model():
-    """Pick a sensible instruct model if none was configured."""
+    """Pick a sensible non-reasoning instruct model if none was configured."""
     global LLM_MODEL
     if LLM_MODEL:
         return LLM_MODEL

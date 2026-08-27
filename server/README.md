@@ -33,23 +33,35 @@ So a slow model never blocks dictation — you keep building while it catches up
 It talks to any OpenAI-compatible endpoint. Defaults to [Ollama](https://ollama.com):
 
 ```bash
-ollama serve            # exposes http://127.0.0.1:11434/v1
-ollama pull qwen3:8b    # strong at "quote only the dialogue"; or gemma3, mistral, …
+ollama serve                    # exposes http://127.0.0.1:11434/v1
+ollama pull qwen2.5:7b-instruct # recommended — see "Which model" below
 ```
 
-The server auto-detects a capable instruct model on startup (preferring qwen/llama/gemma,
-skipping embedding models). Override either default:
+The server auto-detects a capable model on startup — preferring **non-reasoning** instruct
+families (qwen2.5 / llama / gemma) at ~7-8B, and skipping embedding + reasoning models.
+Override either default:
 
 ```bash
 DIORAMA_LLM_URL=http://127.0.0.1:1234/v1 \   # e.g. LM Studio / llama.cpp, or another host
-DIORAMA_LLM_MODEL=qwen3:8b \
+DIORAMA_LLM_MODEL=qwen2.5:7b-instruct \
   ./run.sh medium
 ```
 
-**Hardware note.** Quote-only-the-dialogue needs a mid-size model (qwen3:8b nails it; 1B
-models just wrap the whole line in quotes). On Apple Silicon that's a few seconds; on a
-CPU-only box (e.g. an Intel Mac) it's ~90 s — which is why polish is async. For snappy
-polish, point `DIORAMA_LLM_URL` at an Apple-Silicon machine's Ollama on your LAN.
+### Which model
+
+Benchmarked on a CPU-only box (~5-9 tok/s), polishing room descriptions:
+
+| Model | Speed | Quality |
+|-------|-------|---------|
+| **qwen2.5:7b-instruct** | **~4 s** | ✅ Quotes only the dialogue, keeps words verbatim — the sweet spot |
+| qwen3:8b | ~90 s | ✅ Faithful, but it's a reasoning model → burns minutes "thinking" on CPU |
+| qwen3:4b | timeouts | ❌ Reasoning can't be disabled reliably here; rambles past any timeout |
+| qwen2.5:3b-instruct | ~1.5 s | ⚠️ Fast but wraps the whole line in quotes and can drop words |
+| llama3.2:1b | ~1 s | ❌ Quotes the entire description indiscriminately |
+
+Takeaway: pick a **non-reasoning** instruct model (avoid qwen3/“thinking” models — `/no_think`
+is unreliable), around 7-8B. On Apple Silicon even the 8B is a few seconds; on CPU stick to
+7B. If your only fast box is elsewhere on the LAN, point `DIORAMA_LLM_URL` at it.
 
 If no LLM is reachable, polish requests return the raw transcription — dictation never
 fails because the editor is down. Whisper transcription and the LLM are **separate**
