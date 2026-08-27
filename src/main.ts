@@ -7,6 +7,7 @@ import { initStatus, setStatus } from './editor/status';
 import { ensureMic, isRecordingSupported } from './speech/recorder';
 import { openSettings } from './editor/settingsView';
 import { openWorlds } from './editor/worldsView';
+import { makeTypeSelect } from './editor/typeSelect';
 import { getSettings, saveSettings } from './settings';
 import { getExporter } from './export';
 
@@ -17,8 +18,8 @@ app.innerHTML = `
     <span class="brand">di<span class="or">or</span>ama</span>
     <button id="worlds" class="btn worldname" title="Worlds">${escapeHtml(currentName())} ▾</button>
     <div class="tb-spacer"></div>
-    <input id="newtype" class="newtype" list="newtype-list" title="Type for new objects" placeholder="object"/>
-    <datalist id="newtype-list"></datalist>
+    <span class="newtype-label">New:</span>
+    <span id="newtype-host" class="newtype-host" title="Type for new objects"></span>
     <button id="select" class="btn icon" title="Select multiple">⬚</button>
     <button id="settings" class="btn icon" title="Settings">⚙</button>
     <button id="recenter" class="btn icon" title="Recenter">⌖</button>
@@ -45,8 +46,7 @@ const stage = document.querySelector<HTMLElement>('#stage')!;
 const panelHost = document.querySelector<HTMLElement>('#panel')!;
 const worldsBtn = document.querySelector<HTMLButtonElement>('#worlds')!;
 const selectBtn = document.querySelector<HTMLButtonElement>('#select')!;
-const newTypeInput = document.querySelector<HTMLInputElement>('#newtype')!;
-const newTypeList = document.querySelector<HTMLDataListElement>('#newtype-list')!;
+const newTypeHost = document.querySelector<HTMLElement>('#newtype-host')!;
 
 const save = () => saveCurrent(world);   // debounced; persists across refresh (see model/storage)
 
@@ -73,28 +73,25 @@ const activateWorld = (w: World) => {
   panel.setWorld(world);
   selectBtn.classList.remove('on');                            // setWorld exits Select mode
   worldsBtn.textContent = `${currentName()} ▾`;
-  fillNewTypeList();
+  mountNewType();                                              // refresh type options for the new world
 };
 
-// Global default type stamped on new objects (persisted). A combo seeded with types in use.
+// Global default type stamped on new objects (persisted). A dropdown seeded with types in use.
 const distinctTypes = (): string[] => {
-  const set = new Set<string>(['object', 'room', newTypeInput.value.trim() || 'object']);
+  const set = new Set<string>(['object', 'room']);
   for (const r of world.rooms) if (r.type) set.add(r.type);
   return [...set].filter(Boolean).sort();
 };
-const fillNewTypeList = () => {
-  newTypeList.innerHTML = distinctTypes().map((t) => `<option value="${escapeHtml(t)}"></option>`).join('');
+const mountNewType = () => {
+  newTypeHost.innerHTML = '';
+  newTypeHost.appendChild(makeTypeSelect({
+    value: getSettings().defaultType || 'object',
+    options: distinctTypes,
+    onChange: (v) => { const t = v || 'object'; saveSettings({ defaultType: t }); canvas.setNewType(t); },
+  }));
 };
-newTypeInput.value = getSettings().defaultType || 'object';
-canvas.setNewType(newTypeInput.value);
-fillNewTypeList();
-newTypeInput.addEventListener('change', () => {
-  const t = newTypeInput.value.trim() || 'object';
-  newTypeInput.value = t;
-  saveSettings({ defaultType: t });
-  canvas.setNewType(t);
-  fillNewTypeList();
-});
+canvas.setNewType(getSettings().defaultType || 'object');
+mountNewType();
 
 // ── warm mic + model on first interaction ──────────────────────────────────────
 // iOS needs a user gesture to prompt for the mic, so it can't be literally at page open —

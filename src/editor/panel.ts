@@ -2,6 +2,7 @@ import type { Room, World } from '../model/world';
 import { deleteRoom, setShortName, setObjectName, printedName } from '../model/world';
 import { makeDictField } from '../speech/dictateField';
 import { makePropertyList } from './propertyEditor';
+import { makeTypeSelect } from './typeSelect';
 
 // The right-hand property panel (collapsible). Edits write straight through to the model
 // (the source of truth) and re-render the canvas. Shows a single object's fields, or — when
@@ -73,10 +74,12 @@ export class Panel {
     cap.title = 'Capitalize Each Word (for locations)';
     name.row.querySelector('.field-wrap')?.appendChild(cap);
 
-    // Type — a combo box: pick a type already used in this world, or type a new one.
-    const type = comboField('Type', room.type || 'object', this.distinctTypes(), (v) => {
-      room.type = v.trim() || 'object'; this.onChange();
-    });
+    // Type — a dropdown of types in use, with "+" to add a new one.
+    const type = labeledRow('Type', makeTypeSelect({
+      value: room.type || 'object',
+      options: () => this.distinctTypes(),
+      onChange: (v) => { room.type = v || 'object'; this.onChange(); },
+    }));
 
     const parent = this.parentField(room);
     const props = makePropertyList(this.world, room, () => this.onChange());
@@ -84,7 +87,7 @@ export class Panel {
     const del = button('panel-delete btn', 'Delete', () => { deleteRoom(this.world, room.id); this.onDeleted(); });
 
     // Order: object name, type, Name, parent, description (properties).
-    this.body.append(idField.row, type.row, name.row, parent, props, del);
+    this.body.append(idField.row, type, name.row, parent, props, del);
     name.input.focus();
   }
 
@@ -123,21 +126,20 @@ export class Panel {
     const head = div('panel-empty');
     head.textContent = `${rooms.length} objects selected`;
 
-    // Type applies to all selected. Blank if they differ; typing/picking sets them all.
-    const shared = rooms.every(r => r.type === rooms[0].type) ? (rooms[0].type || 'object') : '';
-    const type = comboField('Type (all selected)', shared, this.distinctTypes(), (v) => {
-      const t = v.trim() || 'object';
-      for (const r of rooms) r.type = t;
-      this.onChange();
-    });
-    if (!shared) type.input.placeholder = '(mixed)';
+    // Type applies to all selected. Shows the shared type (or object if they differ).
+    const shared = rooms.every(r => r.type === rooms[0].type) ? (rooms[0].type || 'object') : 'object';
+    const type = labeledRow('Type (all selected)', makeTypeSelect({
+      value: shared,
+      options: () => this.distinctTypes(),
+      onChange: (v) => { const t = v || 'object'; for (const r of rooms) r.type = t; this.onChange(); },
+    }));
 
     const del = button('panel-delete btn', `Delete ${rooms.length}`, () => {
       for (const r of rooms) deleteRoom(this.world, r.id);
       this.onDeleted();
     });
 
-    this.body.append(head, type.row, del);
+    this.body.append(head, type, del);
   }
 }
 
@@ -157,25 +159,14 @@ function textField(label: string, value: string, onCommit: (v: string) => void):
   return { row, input };
 }
 
-// A combo box: a text input backed by a <datalist>, so the user can pick an existing option
-// or type a brand-new value. Commits on change (blur/enter/pick).
-function comboField(label: string, value: string, options: string[], onCommit: (v: string) => void): { row: HTMLElement; input: HTMLInputElement } {
+// Wrap a control in a labeled field row.
+function labeledRow(label: string, control: HTMLElement): HTMLElement {
   const row = div('field');
   const lab = document.createElement('label');
   lab.className = 'field-label';
   lab.textContent = label;
-  const input = document.createElement('input');
-  input.className = 'field-input';
-  input.type = 'text';
-  input.value = value;
-  const listId = 'dl-' + Math.random().toString(36).slice(2, 8);
-  const dl = document.createElement('datalist');
-  dl.id = listId;
-  for (const o of options) { const opt = document.createElement('option'); opt.value = o; dl.appendChild(opt); }
-  input.setAttribute('list', listId);
-  input.addEventListener('change', () => onCommit(input.value));
-  row.append(lab, input, dl);
-  return { row, input };
+  row.append(lab, control);
+  return row;
 }
 
 function button(cls: string, text: string, onClick: () => void): HTMLButtonElement {
