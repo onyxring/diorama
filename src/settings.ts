@@ -8,10 +8,11 @@ export interface Settings {
   groqKey: string;
   openaiKey: string;
   polish: boolean;         // LLM copy-edit of long-form dictation (local server only)
+  defaultType: string;     // type stamped on newly-created objects
 }
 
 const KEY = 'diorama.settings';
-const DEFAULTS: Settings = { engine: 'ondevice', groqKey: '', openaiKey: '', polish: true };
+const DEFAULTS: Settings = { engine: 'ondevice', groqKey: '', openaiKey: '', polish: true, defaultType: 'object' };
 
 export function getSettings(): Settings {
   try {

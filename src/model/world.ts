@@ -84,9 +84,9 @@ export function emptyWorld(name = 'Untitled World'): World {
   return { name, rooms: [] };
 }
 
-export function createRoom(x: number, y: number): Room {
+export function createRoom(x: number, y: number, type = 'object'): Room {
   // No name yet → the first short name given will derive it (see setShortName).
-  return { id: newId('r'), name: '', type: 'object', x, y, properties: [], exits: [], things: [] };
+  return { id: newId('r'), name: '', type: type || 'object', x, y, properties: [], exits: [], things: [] };
 }
 
 // A room's `name` is its Beguile OBJECT IDENTIFIER — code, not prose, and unique across the
@@ -165,11 +165,13 @@ export function disconnect(world: World, aId: string, bId: string): void {
   if (b) b.exits = b.exits.filter(e => e.to !== aId);
 }
 
-/** Delete a room and any exits pointing at it. */
+/** Delete a room and any exits or parent links pointing at it. */
 export function deleteRoom(world: World, id: string): void {
   world.rooms = world.rooms.filter(r => r.id !== id);
-  for (const r of world.rooms) r.exits = r.exits.filter(e => e.to !== id);
-  if (world.start === id) world.start = world.rooms[0]?.id;
+  for (const r of world.rooms) {
+    r.exits = r.exits.filter(e => e.to !== id);
+    if (r.parent === id) delete r.parent;
+  }
 }
 
 /** Canvas grid cell size; rooms snap to it. */

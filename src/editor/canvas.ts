@@ -47,6 +47,7 @@ export class Canvas {
   private multi = false;               // "Select" (multi-select) mode
   private multiSel = new Set<string>();
   private pick: ((room: Room) => void) | null = null;  // parent-pick mode (from the panel)
+  private newType = 'object';          // type stamped on newly-created objects
 
   constructor(private host: HTMLElement, private world: World, private h: CanvasHandlers) {
     this.svg = document.createElementNS(NS, 'svg');
@@ -65,6 +66,7 @@ export class Canvas {
   setWorld(w: World) { this.world = w; this.selectedId = null; this.multi = false; this.multiSel.clear(); this.pick = null; this.recenter(); }
   refresh() { this.render(); }
   clearSelection() { this.selectedId = null; this.multiSel.clear(); this.render(); }
+  setNewType(t: string) { this.newType = t.trim() || 'object'; }
 
   select(room: Room | null) {
     this.selectedId = room?.id ?? null;
@@ -267,9 +269,8 @@ export class Canvas {
           if (this.pick) this.endPick();                          // tap empty → cancel parent pick
           else if (this.multi) { this.multiSel.clear(); this.render(); this.h.onMultiSelect([]); }
           else {
-            const r = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2));
+            const r = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2), this.newType);
             this.world.rooms.push(r);
-            if (!this.world.start) this.world.start = r.id;
             this.select(r); this.h.onChange();
           }
         }
@@ -291,9 +292,8 @@ export class Canvas {
     if (!a || a.pid !== pid) return;
     let id: string;
     if (a.k === 'empty') {
-      const room = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2));
+      const room = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2), this.newType);
       this.world.rooms.push(room);
-      if (!this.world.start) this.world.start = room.id;
       id = room.id;
       this.h.onChange();
     } else if (a.k === 'room') {
@@ -381,7 +381,7 @@ export class Canvas {
 
     // rooms
     for (const r of this.world.rooms) {
-      const cls = 'room' + (this.isSelected(r.id) ? ' selected' : '') + (r.id === this.world.start ? ' start' : '');
+      const cls = 'room' + (this.isSelected(r.id) ? ' selected' : '');
       s += `<g class="${cls}">
         <rect x="${r.x}" y="${r.y}" width="${ROOM_W}" height="${ROOM_H}" rx="10"/>
         <text x="${r.x + ROOM_W / 2}" y="${r.y + ROOM_H / 2}">${escapeXml(printedName(r))}</text>
