@@ -1,5 +1,5 @@
 import type { Room, World } from '../model/world';
-import { setProperty, deleteRoom } from '../model/world';
+import { setProperty, deleteRoom, setShortName, printedName } from '../model/world';
 import { makeDictField } from '../speech/dictateField';
 
 // The right-hand property panel (collapsible). Shows the selected room's fields —
@@ -45,8 +45,17 @@ export class Panel {
       this.onChange();
     };
 
-    const name = makeDictField({ label: 'Name', value: room.name, replace: true, onInput: (v) => { room.name = v; this.onChange(); } });
-    const short = makeDictField({ label: 'Short name', value: prop('short_name'), replace: true, onInput: (v) => write('short_name', v) });
+    // "Name" is the printed short name (dictatable). The Beguile object identifier is
+    // DERIVED from it — never typed or dictated — and shown read-only below.
+    const idLine = document.createElement('div');
+    idLine.className = 'panel-id';
+    const refreshId = () => { idLine.textContent = `Beguile id: ${room.name}`; };
+    refreshId();
+
+    const name = makeDictField({
+      label: 'Name', value: printedName(room), replace: true,
+      onInput: (v) => { setShortName(room, v); refreshId(); this.onChange(); },
+    });
     const desc = makeDictField({ label: 'Description', multiline: true, value: prop('description'), onInput: (v) => write('description', v) });
 
     const del = document.createElement('button');
@@ -54,7 +63,7 @@ export class Panel {
     del.textContent = 'Delete room';
     del.addEventListener('click', () => { deleteRoom(this.world, room.id); this.onDeleted(); });
 
-    this.body.append(name.row, short.row, desc.row, del);
+    this.body.append(name.row, idLine, desc.row, del);
     name.input.focus();
   }
 }

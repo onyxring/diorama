@@ -1,5 +1,5 @@
 import type { World, Room, Direction } from '../model/world';
-import { createRoom, connect, disconnect, snap, GRID } from '../model/world';
+import { createRoom, connect, disconnect, snap, GRID, setShortName, printedName } from '../model/world';
 import { beginDictation, endDictation } from '../speech/dictate';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -21,7 +21,7 @@ type Act =
   | { k: 'connect'; from: string; dir: Direction; pid: number; moved: boolean }
   | { k: 'conn'; a: string; b: string; pid: number; moved: boolean }
   | { k: 'empty'; wx: number; wy: number; sx: number; sy: number; pid: number; moved: boolean }
-  | { k: 'createDictate'; id: string; pid: number }
+  | { k: 'dictate'; id: string; pid: number }
   | { k: 'pan1'; lx: number; ly: number; pid: number };
 
 export interface CanvasHandlers {
@@ -141,12 +141,17 @@ export class Canvas {
       return;
     }
     const room = this.roomAt(w);
-    if (room) { this.act = { k: 'room', id: room.id, gx: w.x - room.x, gy: w.y - room.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false }; return; }
+    if (room) {
+      this.act = { k: 'room', id: room.id, gx: w.x - room.x, gy: w.y - room.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
+      // press-and-hold on a room → (re)name it by voice; a drag cancels this and moves it
+      this.lpTimer = window.setTimeout(() => this.onLongPress(e.pointerId), 450);
+      return;
+    }
     const conn = this.connAt(w);
     if (conn) { this.act = { k: 'conn', a: conn.a, b: conn.b, pid: e.pointerId, moved: false }; return; }
     this.act = { k: 'empty', wx: w.x, wy: w.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
-    // press-and-hold on empty → create a room here and start naming it by voice (#2)
-    this.lpTimer = window.setTimeout(() => this.startCreateDictate(e.pointerId), 450);
+    // press-and-hold on empty → create a room here and name it by voice
+    this.lpTimer = window.setTimeout(() => this.onLongPress(e.pointerId), 450);
   }
 
   private onMove(e: PointerEvent) {
@@ -165,6 +170,7 @@ export class Canvas {
     if (a.k === 'room') {
       if (!a.moved && Math.hypot(e.clientX - a.sx, e.clientY - a.sy) < TAP_SLOP) return;
       a.moved = true;
+      this.clearLp();                                     // a drag, not a hold → don't dictate
       const r = this.world.rooms.find(x => x.id === a.id);
       if (r) { r.x = w.x - a.gx; r.y = w.y - a.gy; this.render(); }
     } else if (a.k === 'connect') {
@@ -222,8 +228,8 @@ export class Canvas {
           this.select(r); this.h.onChange();
         }
         break;
-      case 'createDictate':
-        void this.finishCreateDictate(a.id);       // release ends the name dictation
+      case 'dictate':
+        void this.finishDictate(a.id);             // release ends the name dictation
         break;
       case 'pan1':
         this.render();
@@ -231,23 +237,32 @@ export class Canvas {
     }
   }
 
-  // ── press-and-hold on empty: make a room + name it by voice (#2) ─────────────
-  private startCreateDictate(pid: number) {
-    if (!this.act || this.act.k !== 'empty' || this.act.pid !== pid) return;
-    const room = createRoom(snap(this.act.wx - ROOM_W / 2), snap(this.act.wy - ROOM_H / 2));
-    this.world.rooms.push(room);
-    if (!this.world.start) this.world.start = room.id;
-    this.selectedId = room.id;
-    this.act = { k: 'createDictate', id: room.id, pid };
+  // ── press-and-hold to name by voice ──────────────────────────────────────────
+  // On empty space: create a room here first. On an existing room: name that one.
+  // Either way we then capture the printed (short) name; the Beguile id is re-derived.
+  private onLongPress(pid: number) {
+    const a = this.act;
+    if (!a || a.pid !== pid) return;
+    let id: string;
+    if (a.k === 'empty') {
+      const room = createRoom(snap(a.wx - ROOM_W / 2), snap(a.wy - ROOM_H / 2));
+      this.world.rooms.push(room);
+      if (!this.world.start) this.world.start = room.id;
+      id = room.id;
+      this.h.onChange();
+    } else if (a.k === 'room') {
+      id = a.id;
+    } else return;
+    this.selectedId = id;
+    this.act = { k: 'dictate', id, pid };
     this.render();
-    this.h.onSelect(room);     // show it in the panel
-    this.h.onChange();
+    this.h.onSelect(this.world.rooms.find(r => r.id === id) ?? null);   // show it in the panel
     void beginDictation('Listening… name the room');
   }
-  private async finishCreateDictate(id: string) {
+  private async finishDictate(id: string) {
     const text = await endDictation(true);        // names drop trailing punctuation
     const r = this.world.rooms.find((x) => x.id === id);
-    if (r && text) { r.name = text; this.render(); this.h.onChange(); this.h.onSelect(r); }
+    if (r && text) { setShortName(r, text); this.render(); this.h.onChange(); this.h.onSelect(r); }
   }
   private clearLp() { if (this.lpTimer !== undefined) { clearTimeout(this.lpTimer); this.lpTimer = undefined; } }
 
@@ -293,7 +308,7 @@ export class Canvas {
       const cls = 'room' + (r.id === this.selectedId ? ' selected' : '') + (r.id === this.world.start ? ' start' : '');
       s += `<g class="${cls}">
         <rect x="${r.x}" y="${r.y}" width="${ROOM_W}" height="${ROOM_H}" rx="10"/>
-        <text x="${r.x + ROOM_W / 2}" y="${r.y + ROOM_H / 2}">${escapeXml(r.name)}</text>
+        <text x="${r.x + ROOM_W / 2}" y="${r.y + ROOM_H / 2}">${escapeXml(printedName(r))}</text>
       </g>`;
     }
     // direction ports on the selected room

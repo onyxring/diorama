@@ -69,6 +69,7 @@ body {
 .panel.collapsed .panel-toggle { transform: scaleX(-1); }
 .panel-body { padding: 16px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .panel-empty { color: var(--muted); font-size: 13px; }
+.panel-id { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: -8px 0 2px 2px; }
 .panel-delete { align-self: flex-start; margin-top: 4px; color: #fca5a5; }
 
 /* ── dictatable fields ───────────────────────────────────────────────────── */

@@ -67,8 +67,36 @@ export function emptyWorld(name = 'Untitled World'): World {
   return { name, rooms: [] };
 }
 
-export function createRoom(x: number, y: number, name = 'New Room'): Room {
-  return { id: newId('r'), name, x, y, properties: [], exits: [], things: [] };
+export function createRoom(x: number, y: number, printed = 'New Room'): Room {
+  const room: Room = { id: newId('r'), name: 'room', x, y, properties: [], exits: [], things: [] };
+  setShortName(room, printed);
+  return room;
+}
+
+// A room's `name` is its Beguile OBJECT IDENTIFIER — code, not prose. It is never typed
+// or dictated directly; it's derived from the human-facing short name. "The Dining Room"
+// → `diningRoom`. Beguile is case-insensitive, so exact casing is cosmetic.
+export function beguileIdent(s: string): string {
+  const stripped = s.trim().replace(/^(the|a|an)\s+/i, '');
+  const words = stripped.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const id = words[0].toLowerCase()
+    + words.slice(1).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('');
+  return /^[0-9]/.test(id) ? '_' + id : id;
+}
+
+/** The printed name shown to the player / on the canvas (the short name). */
+export function printedName(room: Room): string {
+  const sn = room.properties.find((p) => p.key === 'short_name')?.value;
+  return (sn ? String(sn) : '') || room.name || 'room';
+}
+
+/** Set the printed short name and re-derive the Beguile object identifier from it. */
+export function setShortName(room: Room, printed: string): void {
+  const t = printed.trim();
+  if (t) setProperty(room, 'short_name', t);
+  else room.properties = room.properties.filter((p) => p.key !== 'short_name');
+  room.name = beguileIdent(t) || 'room';
 }
 
 /** Connect two rooms. Adds the reciprocal exit unless one-way. Idempotent; updates
