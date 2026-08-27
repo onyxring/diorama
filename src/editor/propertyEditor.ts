@@ -154,7 +154,13 @@ function arrayEditor(room: Room, p: Property, type: PropType, onChange: () => vo
   const addWrap = el('div', 'arr-add-wrap');
   let adding = false;
 
-  const items = (): string[] => (Array.isArray(p.value) ? p.value.map(String) : []);
+  // Read the LIVE value from the model — for the always-offered `name`/`description` rows the
+  // property may not exist yet, and upsert creates a new object, so `p` can be a stale placeholder.
+  const items = (): string[] => {
+    const live = room.properties.find((x) => x.key === p.key);
+    const v = live ? live.value : p.value;
+    return Array.isArray(v) ? v.map(String) : [];
+  };
   const commit = (arr: string[]) => {
     const seen = new Set<string>(); const out: string[] = [];
     for (const raw of arr) {
