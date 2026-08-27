@@ -183,3 +183,17 @@ textarea.field-input { resize: vertical; min-height: 88px; }
 .prop-add { display: flex; gap: 6px; margin-top: 4px; }
 .prop-add .field-input { flex: 1; }
 .field-label:empty { display: none; }
+
+/* array<dictionaryWord> / array<string> chip editor */
+.arr-edit { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px;
+  border-radius: 999px; background: #2a2724; border: 1px solid var(--line);
+  color: var(--ink); font-size: 13px;
+}
+.chip-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }
+.chip-x:active { color: var(--accent); }
+.arr-fromname { font-size: 12px; }
+.arr-add-wrap { display: flex; gap: 6px; align-items: center; width: 100%; }
+.arr-add-wrap .field-input { flex: 1; }

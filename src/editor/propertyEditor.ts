@@ -4,6 +4,7 @@ import {
   upsertProperty, removeProperty, defaultPropType,
 } from '../model/world';
 import { makeDictField } from '../speech/dictateField';
+import { beginDictation, endDictation } from '../speech/dictate';
 
 // A typed property list for one object. Each property carries a Beguile TYPE (string, int,
 // array<dictionaryWord>, …) that decides its editor: dictatable prose, number, flag, single
@@ -15,11 +16,11 @@ export function makePropertyList(world: World, room: Room, onChange: () => void)
   const host = el('div', 'prop-list');
 
   const rowsToShow = (): Property[] => {
-    const props = room.properties.filter((p) => p.key !== 'short_name');   // short_name = the Name field
-    if (!props.some((p) => p.key === 'description')) {
-      return [{ key: 'description', value: '', type: 'string' }, ...props];   // always offer a description
-    }
-    return props;
+    let rows = room.properties.filter((p) => p.key !== 'short_name');   // short_name = the Name field
+    // Always offer the two most common: description (prose) and name (parser vocabulary).
+    if (!rows.some((p) => p.key === 'name')) rows = [{ key: 'name', value: [], type: 'array<dictionaryWord>' }, ...rows];
+    if (!rows.some((p) => p.key === 'description')) rows = [{ key: 'description', value: '', type: 'string' }, ...rows];
+    return rows;
   };
 
   const render = () => {
@@ -103,10 +104,10 @@ function valueEditor(room: Room, p: Property, type: PropType, onChange: () => vo
     return f.row;
   }
 
-  if (isArrayType(type)) {                             // one item per line
+  if (type === 'array<int>') {                          // numbers: simple one-per-line textarea
     const ta = document.createElement('textarea');
     ta.className = 'field-input'; ta.rows = 3;
-    ta.placeholder = type === 'array<dictionaryWord>' ? 'one word per line' : 'one per line';
+    ta.placeholder = 'one per line';
     ta.value = Array.isArray(p.value) ? p.value.join('\n') : String(p.value ?? '');
     ta.addEventListener('change', () => {
       const arr = ta.value.split(/\n/).map((s) => s.trim()).filter(Boolean);
@@ -114,6 +115,8 @@ function valueEditor(room: Room, p: Property, type: PropType, onChange: () => vo
     });
     return ta;
   }
+
+  if (isArrayType(type)) return arrayEditor(room, p, type, onChange);   // word/string chip list
 
   // 'string' — dictatable prose (descriptions, messages)
   const f = makeDictField({
@@ -140,6 +143,106 @@ function addRow(room: Room, onChange: () => void, rerender: () => void): HTMLEle
   i.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') add(); });
   row.append(i, fieldBtn('＋', add));
   return row;
+}
+
+// A chip list for array<dictionaryWord> / array<string>: removable word chips, a "From name"
+// seed (for dictionary words), and a "+" that reveals an input + mic to speak or type a word.
+function arrayEditor(room: Room, p: Property, type: PropType, onChange: () => void): HTMLElement {
+  const wordMode = type === 'array<dictionaryWord>';
+  const host = el('div', 'arr-edit');
+  const chips = el('div', 'chips');
+  const addWrap = el('div', 'arr-add-wrap');
+  let adding = false;
+
+  const items = (): string[] => (Array.isArray(p.value) ? p.value.map(String) : []);
+  const commit = (arr: string[]) => {
+    const seen = new Set<string>(); const out: string[] = [];
+    for (const raw of arr) {
+      const w = raw.trim(); if (!w) continue;
+      const low = w.toLowerCase();
+      if (seen.has(low)) continue;            // dedupe case-insensitively
+      seen.add(low);
+      out.push(wordMode ? low : w);           // dictionary words are lowercased
+    }
+    upsertProperty(room, p.key, out, type); onChange(); renderChips();
+  };
+  const addTokens = (raw: string) => {
+    if (!raw.trim()) return;
+    const toks = wordMode ? raw.split(/[^A-Za-z0-9-]+/).filter(Boolean) : [raw.trim()];
+    commit([...items(), ...toks]);
+  };
+
+  const renderChips = () => {
+    chips.innerHTML = '';
+    for (const w of items()) {
+      const chip = el('span', 'chip');
+      chip.textContent = w;
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'chip-x'; x.textContent = '×';
+      x.addEventListener('click', () => commit(items().filter((i) => i !== w)));
+      chip.appendChild(x);
+      chips.appendChild(chip);
+    }
+  };
+
+  const renderAdd = () => {
+    addWrap.innerHTML = '';
+    if (!adding) {
+      addWrap.appendChild(fieldBtn(wordMode ? '＋ word' : '＋ add', () => { adding = true; renderAdd(); }));
+      return;
+    }
+    const box = input('text', '');
+    box.placeholder = wordMode ? 'say or type a word' : 'say or type a value';
+    const mic = document.createElement('button');
+    mic.type = 'button'; mic.className = 'field-mic'; mic.textContent = '🎤'; mic.title = 'Hold to speak';
+    attachWordMic(mic, (t) => { box.value = t; box.focus(); });   // dictation fills the box
+    const add = () => { addTokens(box.value); box.value = ''; box.focus(); };   // stays open for more
+    box.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') add(); });
+    addWrap.append(box, mic, fieldBtn('✓', add), fieldBtn('×', () => { adding = false; renderAdd(); }));
+    box.focus();
+  };
+
+  host.appendChild(chips);
+  if (wordMode) {
+    const fromName = fieldBtn('From name', () => {
+      const sn = String(room.properties.find((x) => x.key === 'short_name')?.value ?? '');
+      const words = sn.split(/[^A-Za-z0-9-]+/).map((w) => w.toLowerCase())
+        .filter((w) => w && !['the', 'a', 'an'].includes(w));
+      commit([...items(), ...words]);
+    });
+    fromName.classList.add('arr-fromname');
+    fromName.title = 'Add dictionary words from the short name';
+    host.appendChild(fromName);
+  }
+  host.appendChild(addWrap);
+  renderChips();
+  renderAdd();
+  return host;
+}
+
+// Hold-to-talk on a mic button → one short utterance, trailing punctuation stripped, handed
+// to onText. No polish (single words don't need it).
+function attachWordMic(mic: HTMLButtonElement, onText: (t: string) => void): void {
+  let held = false, capturing = false, working = false;
+  const begin = async () => {
+    if (working || capturing) return;
+    held = true;
+    const ok = await beginDictation('Listening… say a word');
+    if (!ok) { held = false; return; }
+    capturing = true; mic.classList.add('rec');
+    if (!held) void end();
+  };
+  const end = async () => {
+    held = false;
+    if (!capturing) return;
+    capturing = false; mic.classList.remove('rec'); mic.classList.add('busy'); working = true;
+    const text = await endDictation(true);
+    if (text) onText(text);
+    working = false; mic.classList.remove('busy');
+  };
+  mic.addEventListener('pointerdown', (e) => { e.preventDefault(); mic.setPointerCapture(e.pointerId); void begin(); });
+  mic.addEventListener('pointerup', (e) => { mic.releasePointerCapture?.(e.pointerId); void end(); });
+  mic.addEventListener('pointercancel', () => void end());
 }
 
 // ── DOM helpers ──────────────────────────────────────────────────────────────
