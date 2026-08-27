@@ -238,7 +238,9 @@ export class Canvas {
             r.x = snap(r.x); r.y = snap(r.y);
             if (this.applyDropParent(r)) { r.x = a.ox; r.y = a.oy; }
           }
-          this.render(); this.h.onChange();
+          this.h.onChange();
+          if (!this.multi && !this.pick) this.select(r ?? null);   // a moved object gains focus
+          else this.render();
         } else if (this.pick) {
           if (r) this.pick(r);
           this.endPick();
