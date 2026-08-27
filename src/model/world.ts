@@ -19,8 +19,17 @@ export const OPPOSITE: Record<Direction, Direction> = {
 /** A named value on a room or thing. Exporters map these onto target-language fields. */
 export type PropertyValue = string | number | boolean | string[];
 
-/** How a property is edited and exported. Drives which editor the panel shows. */
-export type PropType = 'string' | 'text' | 'int' | 'bool' | 'stringArray';
+/** A Beguile type. Drives both which editor the panel shows and how the value is exported. */
+export type PropType =
+  | 'string' | 'int' | 'uint' | 'float' | 'bool' | 'dictionaryWord'
+  | 'array<string>' | 'array<dictionaryWord>' | 'array<int>';
+
+export const PROP_TYPES: PropType[] = [
+  'string', 'int', 'uint', 'float', 'bool', 'dictionaryWord',
+  'array<string>', 'array<dictionaryWord>', 'array<int>',
+];
+
+export function isArrayType(t: PropType): boolean { return t.startsWith('array<'); }
 
 export interface Property {
   key: string;                 // e.g. "description", "dark", "name"
@@ -173,11 +182,12 @@ export function setProperty(target: Room | Thing, key: string, value: PropertyVa
   else target.properties.push({ key, value });
 }
 
-// Well-known IF property names → their most common type. Everything else defaults to string.
+// Well-known IF property names → their most common Beguile type. Others default to string.
 const KNOWN_PROP_TYPES: Record<string, PropType> = {
-  description: 'text', initial: 'text', when_on: 'text', when_off: 'text',
-  when_open: 'text', when_closed: 'text', before: 'text', after: 'text',
-  name: 'stringArray', synonyms: 'stringArray', plural: 'stringArray',
+  description: 'string', initial: 'string', when_on: 'string', when_off: 'string',
+  when_open: 'string', when_closed: 'string', before: 'string', after: 'string',
+  name: 'array<dictionaryWord>', synonyms: 'array<dictionaryWord>',
+  adjective: 'array<dictionaryWord>', plural: 'array<dictionaryWord>',
   dark: 'bool', scenery: 'bool', static: 'bool', concealed: 'bool', edible: 'bool',
   open: 'bool', openable: 'bool', locked: 'bool', lockable: 'bool', container: 'bool',
   supporter: 'bool', enterable: 'bool', switchable: 'bool', on: 'bool', light: 'bool',
@@ -188,29 +198,35 @@ export function defaultPropType(key: string): PropType {
   return KNOWN_PROP_TYPES[key.trim().toLowerCase()] ?? 'string';
 }
 
-/** The effective type of a property — explicit, else inferred from the value, else key default. */
+/** The effective type of a property — explicit, else the known-key default, else inferred. */
 export function propType(p: Property): PropType {
   if (p.type) return p.type;
+  const known = KNOWN_PROP_TYPES[p.key.trim().toLowerCase()];
+  if (known) return known;
   if (typeof p.value === 'boolean') return 'bool';
   if (typeof p.value === 'number') return 'int';
-  if (Array.isArray(p.value)) return 'stringArray';
-  return defaultPropType(p.key);
+  if (Array.isArray(p.value)) return 'array<string>';
+  return 'string';
 }
 
 /** Convert a value to another property type (used when the user changes a property's type). */
 export function coerceValue(v: PropertyValue, to: PropType): PropertyValue {
   const text = Array.isArray(v) ? v.join(', ') : String(v ?? '');
+  const list = Array.isArray(v) ? v : text.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
   switch (to) {
     case 'bool': return typeof v === 'boolean' ? v : ['true', 'yes', '1', 'on'].includes(text.trim().toLowerCase());
-    case 'int': { const n = parseInt(text, 10); return Number.isFinite(n) ? n : 0; }
-    case 'stringArray': return Array.isArray(v) ? v : text.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
-    default: return text;   // 'string' | 'text'
+    case 'int': case 'uint': { const n = parseInt(text, 10); const m = Number.isFinite(n) ? n : 0; return to === 'uint' ? Math.max(0, m) : m; }
+    case 'float': { const n = parseFloat(text); return Number.isFinite(n) ? n : 0; }
+    case 'dictionaryWord': return text.trim().split(/\s+/)[0] || '';
+    case 'array<string>': case 'array<dictionaryWord>': case 'array<int>': return list;
+    default: return text;   // 'string'
   }
 }
 
 /** The empty/initial value for a property type. */
 export function emptyValue(type: PropType): PropertyValue {
-  switch (type) { case 'bool': return false; case 'int': return 0; case 'stringArray': return []; default: return ''; }
+  if (isArrayType(type)) return [];
+  switch (type) { case 'bool': return false; case 'int': case 'uint': case 'float': return 0; default: return ''; }
 }
 
 export function upsertProperty(room: Room, key: string, value: PropertyValue, type?: PropType): void {

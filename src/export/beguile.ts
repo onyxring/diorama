@@ -1,6 +1,6 @@
 import type { Exporter } from './exporter';
 import type { World, Room, Property, Direction } from '../model/world';
-import { roomName } from '../model/world';
+import { roomName, propType, isArrayType } from '../model/world';
 
 // The Beguile exporter — diorama's first target.
 //
@@ -26,11 +26,26 @@ function quote(s: string): string {
 }
 
 function emitProperty(p: Property): string {
+  const type = propType(p);
   const v = p.value;
-  if (typeof v === 'boolean') return v ? `    ${p.key};` : '';
-  if (typeof v === 'number') return `    ${p.key} = ${v};`;
-  if (Array.isArray(v)) return v.length ? `    ${p.key} = ${v.map(quote).join(' ')};` : '';
-  return v ? `    ${p.key} = ${quote(v)};` : '';
+  if (type === 'bool') return v === true ? `    ${p.key};` : '';
+  if (type === 'int' || type === 'uint' || type === 'float') {
+    const n = typeof v === 'number' ? v : (type === 'float' ? parseFloat(String(v)) : parseInt(String(v), 10));
+    return Number.isFinite(n) ? `    ${type} ${p.key} = ${n};` : '';
+  }
+  if (type === 'dictionaryWord') {
+    const w = String(Array.isArray(v) ? (v[0] ?? '') : v).trim();
+    return w ? `    dictionaryWord ${p.key} = .${w};` : '';
+  }
+  if (isArrayType(type)) {
+    const arr = Array.isArray(v) ? v : String(v ?? '').split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+    if (!arr.length) return '';
+    const elems = type === 'array<dictionaryWord>' ? arr.map(w => '.' + String(w).trim())
+      : type === 'array<int>' ? arr.map(x => String(parseInt(String(x), 10) || 0))
+      : arr.map(x => quote(String(x)));
+    return `    ${type} ${p.key} = {${elems.join(', ')}};`;
+  }
+  return v ? `    ${p.key} = ${quote(String(v))};` : '';   // string
 }
 
 function emitRoom(room: Room, idOf: (id: string) => string): string {

@@ -1,18 +1,15 @@
 import type { World, Room, Property, PropType } from '../model/world';
-import { propType, coerceValue, emptyValue, upsertProperty, removeProperty, defaultPropType } from '../model/world';
+import {
+  PROP_TYPES, isArrayType, propType, coerceValue, emptyValue,
+  upsertProperty, removeProperty, defaultPropType,
+} from '../model/world';
 import { makeDictField } from '../speech/dictateField';
 
-// A typed property list for one object. Each property carries a type that decides its editor:
-// text field, dictatable paragraph, number, flag, or a one-per-line string list. Known keys
-// (description, name, dark, …) default to their common type; the user can change any of them,
-// and the editor swaps to match. A `description` row is always offered even before it exists.
-const TYPES: { id: PropType; label: string }[] = [
-  { id: 'string', label: 'text' },
-  { id: 'text', label: 'paragraph' },
-  { id: 'int', label: 'number' },
-  { id: 'bool', label: 'flag' },
-  { id: 'stringArray', label: 'list' },
-];
+// A typed property list for one object. Each property carries a Beguile TYPE (string, int,
+// array<dictionaryWord>, …) that decides its editor: dictatable prose, number, flag, single
+// dictionary word, or a one-per-line list. Known keys (description, name, dark, …) default to
+// their common type; the user can change any of them, and the editor swaps to match. A
+// `description` row is always offered even before it exists.
 
 export function makePropertyList(world: World, room: Room, onChange: () => void): HTMLElement {
   const host = el('div', 'prop-list');
@@ -20,7 +17,7 @@ export function makePropertyList(world: World, room: Room, onChange: () => void)
   const rowsToShow = (): Property[] => {
     const props = room.properties.filter((p) => p.key !== 'short_name');   // short_name = the Name field
     if (!props.some((p) => p.key === 'description')) {
-      return [{ key: 'description', value: '', type: 'text' }, ...props];   // always offer a description
+      return [{ key: 'description', value: '', type: 'string' }, ...props];   // always offer a description
     }
     return props;
   };
@@ -48,9 +45,9 @@ function propRow(_world: World, room: Room, p: Property, onChange: () => void, r
 
   const sel = document.createElement('select');
   sel.className = 'prop-type';
-  for (const t of TYPES) {
+  for (const t of PROP_TYPES) {
     const o = document.createElement('option');
-    o.value = t.id; o.textContent = t.label; o.selected = t.id === type;
+    o.value = t; o.textContent = t; o.selected = t === type;
     sel.appendChild(o);
   }
   sel.addEventListener('change', () => {
@@ -71,52 +68,59 @@ function propRow(_world: World, room: Room, p: Property, onChange: () => void, r
 }
 
 function valueEditor(room: Room, p: Property, type: PropType, onChange: () => void): HTMLElement {
-  switch (type) {
-    case 'text': {                                    // dictatable paragraph
-      const f = makeDictField({
-        label: '', multiline: true, value: String(p.value ?? ''),
-        onInput: (v) => { upsertProperty(room, p.key, v, 'text'); onChange(); },
-      });
-      return f.row;
-    }
-    case 'bool': {
-      const wrap = el('label', 'prop-bool') as HTMLLabelElement;
-      const cb = document.createElement('input');
-      cb.type = 'checkbox'; cb.checked = p.value === true;
-      const span = document.createElement('span');
+  if (type === 'bool') {
+    const wrap = el('label', 'prop-bool') as HTMLLabelElement;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = p.value === true;
+    const span = document.createElement('span');
+    span.textContent = cb.checked ? 'on' : 'off';
+    cb.addEventListener('change', () => {
       span.textContent = cb.checked ? 'on' : 'off';
-      cb.addEventListener('change', () => {
-        span.textContent = cb.checked ? 'on' : 'off';
-        upsertProperty(room, p.key, cb.checked, 'bool'); onChange();
-      });
-      wrap.append(cb, span);
-      return wrap;
-    }
-    case 'int': {
-      const i = input('number', String(p.value ?? 0));
-      i.addEventListener('change', () => {
-        const n = parseInt(i.value, 10);
-        upsertProperty(room, p.key, Number.isFinite(n) ? n : 0, 'int'); onChange();
-      });
-      return i;
-    }
-    case 'stringArray': {
-      const ta = document.createElement('textarea');
-      ta.className = 'field-input'; ta.rows = 3;
-      ta.placeholder = 'one per line';
-      ta.value = Array.isArray(p.value) ? p.value.join('\n') : String(p.value ?? '');
-      ta.addEventListener('change', () => {
-        const arr = ta.value.split(/\n/).map((s) => s.trim()).filter(Boolean);
-        upsertProperty(room, p.key, arr, 'stringArray'); onChange();
-      });
-      return ta;
-    }
-    default: {                                        // 'string'
-      const i = input('text', String(p.value ?? ''));
-      i.addEventListener('change', () => { upsertProperty(room, p.key, i.value, 'string'); onChange(); });
-      return i;
-    }
+      upsertProperty(room, p.key, cb.checked, 'bool'); onChange();
+    });
+    wrap.append(cb, span);
+    return wrap;
   }
+
+  if (type === 'int' || type === 'uint' || type === 'float') {
+    const i = input('number', String(p.value ?? 0));
+    if (type === 'float') i.step = 'any'; else i.step = '1';
+    if (type === 'uint') i.min = '0';
+    i.addEventListener('change', () => {
+      const n = type === 'float' ? parseFloat(i.value) : parseInt(i.value, 10);
+      let m = Number.isFinite(n) ? n : 0;
+      if (type === 'uint') m = Math.max(0, m);
+      upsertProperty(room, p.key, m, type); onChange();
+    });
+    return i;
+  }
+
+  if (type === 'dictionaryWord') {                    // a single word — dictatable
+    const f = makeDictField({
+      label: '', value: String(p.value ?? ''), replace: true,
+      onInput: (v) => { upsertProperty(room, p.key, v.trim().split(/\s+/)[0] || '', 'dictionaryWord'); onChange(); },
+    });
+    return f.row;
+  }
+
+  if (isArrayType(type)) {                             // one item per line
+    const ta = document.createElement('textarea');
+    ta.className = 'field-input'; ta.rows = 3;
+    ta.placeholder = type === 'array<dictionaryWord>' ? 'one word per line' : 'one per line';
+    ta.value = Array.isArray(p.value) ? p.value.join('\n') : String(p.value ?? '');
+    ta.addEventListener('change', () => {
+      const arr = ta.value.split(/\n/).map((s) => s.trim()).filter(Boolean);
+      upsertProperty(room, p.key, arr, type); onChange();
+    });
+    return ta;
+  }
+
+  // 'string' — dictatable prose (descriptions, messages)
+  const f = makeDictField({
+    label: '', multiline: true, value: String(p.value ?? ''),
+    onInput: (v) => { upsertProperty(room, p.key, v, 'string'); onChange(); },
+  });
+  return f.row;
 }
 
 function addRow(room: Room, onChange: () => void, rerender: () => void): HTMLElement {

@@ -28,6 +28,13 @@ export class Panel {
 
   setWorld(w: World) { this.world = w; this.show(null); }
   toggle() { this.collapsed = !this.collapsed; this.root.classList.toggle('collapsed', this.collapsed); }
+
+  // Types already used in this world — the options offered by the Type combo box.
+  private distinctTypes(): string[] {
+    const set = new Set<string>(['object', 'room']);
+    for (const r of this.world.rooms) if (r.type) set.add(r.type);
+    return [...set].sort();
+  }
   private expand() { if (this.collapsed) this.toggle(); }
 
   /** Convenience for single selection / clearing. */
@@ -66,15 +73,18 @@ export class Panel {
     cap.title = 'Capitalize Each Word (for locations)';
     name.row.querySelector('.field-wrap')?.appendChild(cap);
 
-    // Type — plain text, default "object" (no reason to dictate it).
-    const type = textField('Type', room.type || 'object', (v) => { room.type = v.trim() || 'object'; this.onChange(); });
+    // Type — a combo box: pick a type already used in this world, or type a new one.
+    const type = comboField('Type', room.type || 'object', this.distinctTypes(), (v) => {
+      room.type = v.trim() || 'object'; this.onChange();
+    });
 
     const parent = this.parentField(room);
     const props = makePropertyList(this.world, room, () => this.onChange());
 
     const del = button('panel-delete btn', 'Delete', () => { deleteRoom(this.world, room.id); this.onDeleted(); });
 
-    this.body.append(name.row, idField.row, type.row, parent, props, del);
+    // Order: object name, type, Name, parent, description (properties).
+    this.body.append(idField.row, type.row, name.row, parent, props, del);
     name.input.focus();
   }
 
@@ -113,9 +123,9 @@ export class Panel {
     const head = div('panel-empty');
     head.textContent = `${rooms.length} objects selected`;
 
-    // Type applies to all selected. Blank if they differ; typing sets them all.
+    // Type applies to all selected. Blank if they differ; typing/picking sets them all.
     const shared = rooms.every(r => r.type === rooms[0].type) ? (rooms[0].type || 'object') : '';
-    const type = textField('Type (all selected)', shared, (v) => {
+    const type = comboField('Type (all selected)', shared, this.distinctTypes(), (v) => {
       const t = v.trim() || 'object';
       for (const r of rooms) r.type = t;
       this.onChange();
@@ -144,6 +154,27 @@ function textField(label: string, value: string, onCommit: (v: string) => void):
   // Commit on change (blur/enter) so identifier de-duplication doesn't fight the cursor.
   input.addEventListener('change', () => onCommit(input.value));
   row.append(lab, input);
+  return { row, input };
+}
+
+// A combo box: a text input backed by a <datalist>, so the user can pick an existing option
+// or type a brand-new value. Commits on change (blur/enter/pick).
+function comboField(label: string, value: string, options: string[], onCommit: (v: string) => void): { row: HTMLElement; input: HTMLInputElement } {
+  const row = div('field');
+  const lab = document.createElement('label');
+  lab.className = 'field-label';
+  lab.textContent = label;
+  const input = document.createElement('input');
+  input.className = 'field-input';
+  input.type = 'text';
+  input.value = value;
+  const listId = 'dl-' + Math.random().toString(36).slice(2, 8);
+  const dl = document.createElement('datalist');
+  dl.id = listId;
+  for (const o of options) { const opt = document.createElement('option'); opt.value = o; dl.appendChild(opt); }
+  input.setAttribute('list', listId);
+  input.addEventListener('change', () => onCommit(input.value));
+  row.append(lab, input, dl);
   return { row, input };
 }
 
