@@ -1,6 +1,7 @@
 import type { Room, World } from '../model/world';
-import { setProperty, deleteRoom, setShortName, setObjectName, printedName } from '../model/world';
+import { deleteRoom, setShortName, setObjectName, printedName } from '../model/world';
 import { makeDictField } from '../speech/dictateField';
+import { makePropertyList } from './propertyEditor';
 
 // The right-hand property panel (collapsible). Edits write straight through to the model
 // (the source of truth) and re-render the canvas. Shows a single object's fields, or — when
@@ -49,13 +50,6 @@ export class Panel {
 
   // ── single object ─────────────────────────────────────────────────────────────
   private showOne(room: Room): void {
-    const prop = (k: string) => String(room.properties.find(p => p.key === k)?.value ?? '');
-    const writeProp = (k: string, v: string) => {
-      const t = v.trim();
-      if (t) setProperty(room, k, t); else room.properties = room.properties.filter(p => p.key !== k);
-      this.onChange();
-    };
-
     // Name (printed / short name) — dictatable. Derives the object id only while none is set.
     const idField = textField('Beguile object name', room.name, (v) => { setObjectName(this.world, room, v); this.onChange(); });
     const syncId = () => { idField.input.value = room.name; };
@@ -64,16 +58,23 @@ export class Panel {
       label: 'Name', value: printedName(room), replace: true,
       onInput: (v) => { setShortName(this.world, room, v); syncId(); this.onChange(); },
     });
+    // Capitalize Each Word — locations are usually titled ("The Dining Room"); objects aren't.
+    const cap = button('field-btn', 'Aa', () => {
+      const v = titleCase(name.input.value);
+      name.input.value = v; setShortName(this.world, room, v); syncId(); this.onChange();
+    });
+    cap.title = 'Capitalize Each Word (for locations)';
+    name.row.querySelector('.field-wrap')?.appendChild(cap);
 
     // Type — plain text, default "object" (no reason to dictate it).
     const type = textField('Type', room.type || 'object', (v) => { room.type = v.trim() || 'object'; this.onChange(); });
 
     const parent = this.parentField(room);
-    const desc = makeDictField({ label: 'Description', multiline: true, value: prop('description'), onInput: (v) => writeProp('description', v) });
+    const props = makePropertyList(this.world, room, () => this.onChange());
 
     const del = button('panel-delete btn', 'Delete', () => { deleteRoom(this.world, room.id); this.onDeleted(); });
 
-    this.body.append(name.row, idField.row, type.row, parent, desc.row, del);
+    this.body.append(name.row, idField.row, type.row, parent, props, del);
     name.input.focus();
   }
 
@@ -159,4 +160,8 @@ function div(cls: string): HTMLDivElement {
   const d = document.createElement('div');
   d.className = cls;
   return d;
+}
+
+function titleCase(s: string): string {
+  return s.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 }

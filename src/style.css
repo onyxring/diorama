@@ -162,3 +162,17 @@ textarea.field-input { resize: vertical; min-height: 88px; }
 .world-row.on .world-open { border-color: var(--accent); color: var(--accent-soft); }
 .world-new { display: flex; gap: 6px; margin-top: 10px; }
 .world-new .field-input { flex: 1; width: auto; }
+
+/* typed property list */
+.prop-list { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.prop-list-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.prop { display: flex; flex-direction: column; gap: 6px; }
+.prop-head { display: flex; gap: 6px; align-items: center; }
+.prop-key { flex: 1; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop-type { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 12px; }
+.prop-value .field { margin: 0; }
+.prop-bool { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 14px; }
+.prop-bool input { width: 20px; height: 20px; accent-color: var(--accent); }
+.prop-add { display: flex; gap: 6px; margin-top: 4px; }
+.prop-add .field-input { flex: 1; }
+.field-label:empty { display: none; }

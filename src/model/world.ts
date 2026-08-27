@@ -17,10 +17,15 @@ export const OPPOSITE: Record<Direction, Direction> = {
 };
 
 /** A named value on a room or thing. Exporters map these onto target-language fields. */
-export type PropertyValue = string | number | boolean;
+export type PropertyValue = string | number | boolean | string[];
+
+/** How a property is edited and exported. Drives which editor the panel shows. */
+export type PropType = 'string' | 'text' | 'int' | 'bool' | 'stringArray';
+
 export interface Property {
-  key: string;                 // e.g. "description", "dark", "printedName"
+  key: string;                 // e.g. "description", "dark", "name"
   value: PropertyValue;
+  type?: PropType;             // omitted → inferred from the value / known-key defaults
 }
 
 /** A connection from one room to another. */
@@ -166,6 +171,56 @@ export function setProperty(target: Room | Thing, key: string, value: PropertyVa
   const existing = target.properties.find(p => p.key === key);
   if (existing) existing.value = value;
   else target.properties.push({ key, value });
+}
+
+// Well-known IF property names → their most common type. Everything else defaults to string.
+const KNOWN_PROP_TYPES: Record<string, PropType> = {
+  description: 'text', initial: 'text', when_on: 'text', when_off: 'text',
+  when_open: 'text', when_closed: 'text', before: 'text', after: 'text',
+  name: 'stringArray', synonyms: 'stringArray', plural: 'stringArray',
+  dark: 'bool', scenery: 'bool', static: 'bool', concealed: 'bool', edible: 'bool',
+  open: 'bool', openable: 'bool', locked: 'bool', lockable: 'bool', container: 'bool',
+  supporter: 'bool', enterable: 'bool', switchable: 'bool', on: 'bool', light: 'bool',
+  capacity: 'int', weight: 'int',
+};
+
+export function defaultPropType(key: string): PropType {
+  return KNOWN_PROP_TYPES[key.trim().toLowerCase()] ?? 'string';
+}
+
+/** The effective type of a property — explicit, else inferred from the value, else key default. */
+export function propType(p: Property): PropType {
+  if (p.type) return p.type;
+  if (typeof p.value === 'boolean') return 'bool';
+  if (typeof p.value === 'number') return 'int';
+  if (Array.isArray(p.value)) return 'stringArray';
+  return defaultPropType(p.key);
+}
+
+/** Convert a value to another property type (used when the user changes a property's type). */
+export function coerceValue(v: PropertyValue, to: PropType): PropertyValue {
+  const text = Array.isArray(v) ? v.join(', ') : String(v ?? '');
+  switch (to) {
+    case 'bool': return typeof v === 'boolean' ? v : ['true', 'yes', '1', 'on'].includes(text.trim().toLowerCase());
+    case 'int': { const n = parseInt(text, 10); return Number.isFinite(n) ? n : 0; }
+    case 'stringArray': return Array.isArray(v) ? v : text.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+    default: return text;   // 'string' | 'text'
+  }
+}
+
+/** The empty/initial value for a property type. */
+export function emptyValue(type: PropType): PropertyValue {
+  switch (type) { case 'bool': return false; case 'int': return 0; case 'stringArray': return []; default: return ''; }
+}
+
+export function upsertProperty(room: Room, key: string, value: PropertyValue, type?: PropType): void {
+  const p = room.properties.find((x) => x.key === key);
+  if (p) { p.value = value; if (type) p.type = type; }
+  else room.properties.push({ key, value, type: type ?? defaultPropType(key) });
+}
+
+export function removeProperty(room: Room, key: string): void {
+  room.properties = room.properties.filter((p) => p.key !== key);
 }
 
 export function roomName(world: World, id: string): string {

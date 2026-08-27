@@ -18,7 +18,7 @@ const FRAC: Partial<Record<Direction, [number, number]>> = {
 interface Pt { x: number; y: number; }
 
 type Act =
-  | { k: 'room'; id: string; gx: number; gy: number; sx: number; sy: number; pid: number; moved: boolean }
+  | { k: 'room'; id: string; gx: number; gy: number; ox: number; oy: number; sx: number; sy: number; pid: number; moved: boolean }
   | { k: 'connect'; from: string; dir: Direction; pid: number; moved: boolean }
   | { k: 'conn'; a: string; b: string; pid: number; moved: boolean }
   | { k: 'empty'; wx: number; wy: number; sx: number; sy: number; pid: number; moved: boolean }
@@ -170,7 +170,7 @@ export class Canvas {
     }
     const room = this.roomAt(w);
     if (room) {
-      this.act = { k: 'room', id: room.id, gx: w.x - room.x, gy: w.y - room.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
+      this.act = { k: 'room', id: room.id, gx: w.x - room.x, gy: w.y - room.y, ox: room.x, oy: room.y, sx: e.clientX, sy: e.clientY, pid: e.pointerId, moved: false };
       // press-and-hold on a room → (re)name it by voice; a drag cancels this and moves it
       if (plain) this.lpTimer = window.setTimeout(() => this.onLongPress(e.pointerId), 450);
       return;
@@ -232,7 +232,12 @@ export class Canvas {
       case 'room': {
         const r = this.world.rooms.find(x => x.id === a.id);
         if (a.moved) {
-          if (r) { r.x = snap(r.x); r.y = snap(r.y); this.applyDropParent(r); }
+          // Dropped onto another object → parent it and snap BACK to where it started (don't
+          // leave it covering the parent). Otherwise settle at the dragged-to grid cell.
+          if (r) {
+            r.x = snap(r.x); r.y = snap(r.y);
+            if (this.applyDropParent(r)) { r.x = a.ox; r.y = a.oy; }
+          }
           this.render(); this.h.onChange();
         } else if (this.pick) {
           if (r) this.pick(r);
@@ -306,16 +311,19 @@ export class Canvas {
   private clearLp() { if (this.lpTimer !== undefined) { clearTimeout(this.lpTimer); this.lpTimer = undefined; } }
 
   // A room dropped so its center lands on another object becomes that object's child.
-  private applyDropParent(r: Room) {
+  // Returns true if a parent was set (so the caller can snap it back off the parent).
+  private applyDropParent(r: Room): boolean {
     const cx = r.x + ROOM_W / 2, cy = r.y + ROOM_H / 2;
     for (let i = this.world.rooms.length - 1; i >= 0; i--) {
       const o = this.world.rooms[i];
       if (o.id === r.id) continue;
       if (cx >= o.x && cx <= o.x + ROOM_W && cy >= o.y && cy <= o.y + ROOM_H) {
-        if (!this.wouldCycle(r, o)) r.parent = o.id;   // ignore drops that would loop the hierarchy
-        return;
+        if (this.wouldCycle(r, o)) return false;       // ignore drops that would loop the hierarchy
+        r.parent = o.id;
+        return true;
       }
     }
+    return false;
   }
   // True if making `target` the parent of `r` would create a cycle (target descends from r).
   private wouldCycle(r: Room, target: Room): boolean {

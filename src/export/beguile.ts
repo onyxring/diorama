@@ -26,9 +26,11 @@ function quote(s: string): string {
 }
 
 function emitProperty(p: Property): string {
-  if (typeof p.value === 'boolean') return p.value ? `    ${p.key};` : '';
-  if (typeof p.value === 'number') return `    ${p.key} = ${p.value};`;
-  return `    ${p.key} = ${quote(p.value)};`;
+  const v = p.value;
+  if (typeof v === 'boolean') return v ? `    ${p.key};` : '';
+  if (typeof v === 'number') return `    ${p.key} = ${v};`;
+  if (Array.isArray(v)) return v.length ? `    ${p.key} = ${v.map(quote).join(' ')};` : '';
+  return v ? `    ${p.key} = ${quote(v)};` : '';
 }
 
 function emitRoom(room: Room, idOf: (id: string) => string): string {
