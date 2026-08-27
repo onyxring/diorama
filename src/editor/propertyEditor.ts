@@ -201,7 +201,8 @@ function arrayEditor(room: Room, p: Property, type: PropType, onChange: () => vo
     box.placeholder = wordMode ? 'say or type a word' : 'say or type a value';
     const mic = document.createElement('button');
     mic.type = 'button'; mic.className = 'field-mic'; mic.textContent = '🎤'; mic.title = 'Hold to speak';
-    attachWordMic(mic, (t) => { box.value = t; box.focus(); });   // dictation fills the box
+    // Speaking auto-accepts on release (no ✓ needed); the ✓/Enter is for typed words.
+    attachWordMic(mic, (t) => { addTokens(t); box.value = ''; box.focus(); });
     const add = () => { addTokens(box.value); box.value = ''; box.focus(); };   // stays open for more
     box.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') add(); });
     addWrap.append(box, mic, fieldBtn('✓', add), fieldBtn('×', () => { adding = false; renderAdd(); }));
