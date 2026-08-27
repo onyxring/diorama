@@ -103,7 +103,7 @@ export class Panel {
     view.className = 'field-input parent-view';
     const render = () => {
       const p = room.parent ? this.world.rooms.find(r => r.id === room.parent) : undefined;
-      view.textContent = p ? (p.name || printedName(p)) : '—';
+      view.textContent = p ? (p.name || '(unnamed)') : '—';   // object name (unique), not short name
       view.classList.toggle('muted', !p);
     };
     render();
